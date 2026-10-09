@@ -1,0 +1,24 @@
+# Line endings: LF in the repository and in every working copy, whatever core.autocrlf says.
+# CI (eol-check) fails if this line is removed or a file with CRLF endings is committed.
+* text=auto eol=lf
+
+# Binary files: never converted, never diffed as text.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gif binary
+*.ico binary
+*.ogg binary
+*.wav binary
+*.mp3 binary
+*.ttf binary
+*.otf binary
+*.woff2 binary
+*.zip binary
+*.apk binary
+*.aab binary
+*.jks binary
+*.keystore binary
+*.so binary
+*.dll binary
