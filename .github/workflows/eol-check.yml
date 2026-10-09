@@ -1,0 +1,41 @@
+# Line endings stay LF: .gitattributes must carry `* text=auto eol=lf`, and no committed file
+# may have CRLF or mixed endings (`git ls-files --eol` shows i/crlf or i/mixed).
+# Runs on this repository.
+name: Line endings
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions: {}
+
+jobs:
+  eol:
+    name: LF line endings
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Check
+        shell: bash
+        run: |
+          fail=0
+          if ! grep -qE '^\*[[:space:]]+text=auto[[:space:]]+eol=lf[[:space:]]*$' .gitattributes 2>/dev/null; then
+            echo "::error file=.gitattributes::missing the line '* text=auto eol=lf'"
+            fail=1
+          fi
+          bad=$(git ls-files --eol | awk -F'\t' '$1 ~ /^i\/(crlf|mixed)/ {print $2}')
+          if [ -n "$bad" ]; then
+            while IFS= read -r f; do
+              echo "::error file=$f::CRLF line endings committed; run: git add --renormalize ."
+            done <<< "$bad"
+            fail=1
+          fi
+          [ "$fail" -eq 0 ] && echo "Line endings: LF everywhere"
+          exit "$fail"
