@@ -14,7 +14,6 @@ import project_bridge as pb  # noqa: E402
 class ParseCommand(unittest.TestCase):
     def test_known_commands(self):
         self.assertEqual(pb.parse_command("cmd:status-now"), ("Status", "Now"))
-        self.assertEqual(pb.parse_command("cmd:phase-p2"), ("Phase", "P2 Editor + replay + publish"))
         self.assertEqual(pb.parse_command("cmd:verify-needs-windows"), ("Verification", "Needs Windows"))
         self.assertEqual(pb.parse_command("cmd:verify-needs-macos"), ("Verification", "Needs macOS"))
         self.assertEqual(pb.parse_command("cmd:verify-needs-android"), ("Verification", "Needs Android device"))
@@ -26,6 +25,13 @@ class ParseCommand(unittest.TestCase):
         self.assertNotIn("Needs Kade", pb.VERIFICATION_OPTIONS)
         plan = pb.plan_labels("labeled", "cmd:verify-needs-kade", [], True)
         self.assertEqual((plan.apply, plan.unknown), ([], ["cmd:verify-needs-kade"]))
+
+    def test_phase_is_gone(self):
+        # The Project has no Phase field; a phase label is reported, not applied.
+        self.assertIsNone(pb.parse_command("cmd:phase-p0"))
+        self.assertNotIn("Phase", {field for field, _ in pb.COMMANDS.values()})
+        plan = pb.plan_labels("labeled", "cmd:phase-p0", [], True)
+        self.assertEqual((plan.apply, plan.unknown), ([], ["cmd:phase-p0"]))
 
     def test_verification_environments_are_the_needs_options(self):
         self.assertEqual(
@@ -45,7 +51,6 @@ class ParseCommand(unittest.TestCase):
     def test_every_command_names_a_real_option(self):
         options = {
             "Status": pb.STATUS_OPTIONS,
-            "Phase": pb.PHASE_OPTIONS,
             "Verification": pb.VERIFICATION_OPTIONS,
             "Priority": pb.PRIORITY_OPTIONS,
         }
@@ -112,7 +117,7 @@ class ProjectFields(unittest.TestCase):
     def test_missing_field_or_option_is_an_error(self):
         project = pb.parse_project(PROJECT_DATA)
         with self.assertRaises(pb.GitHubError):
-            project.option("Phase", "P0 Android spike")
+            project.option("Priority", "P1")
         with self.assertRaises(pb.GitHubError):
             project.option("Status", "Backlog")
 
@@ -148,11 +153,11 @@ class Snapshot(unittest.TestCase):
     def setUp(self):
         self.items = pb.parse_items([page(
             node("Issue", 1, "Capture runs on Windows", "OPEN",
-                 {"Status": "Now", "Phase": "P0 Android spike", "Priority": "P1", "Target": "2026-10-20"}),
+                 {"Status": "Now", "Priority": "P1", "Target": "2026-10-20"}),
             node("Issue", 2, "Fixed-point math | module", "OPEN",
-                 {"Status": "Next", "Phase": "P1 Vertical slice"}, repo="resonance-lab"),
+                 {"Status": "Next"}, repo="resonance-lab"),
             node("Issue", 3, "Export works on device", "CLOSED",
-                 {"Status": "Done", "Phase": "P0 Android spike", "Verification": "Needs Windows"},
+                 {"Status": "Done", "Verification": "Needs Windows"},
                  assignees=["enjay27"]),
             node("PullRequest", 4, "Bus recorder", "MERGED",
                  {"Status": "Done", "Verification": "NOT VERIFIED"}),
@@ -185,7 +190,7 @@ class Snapshot(unittest.TestCase):
         text = pb.render_status(self.items, "Resonance", when, "https://github.com/orgs/star-resonance/projects/1")
         self.assertIn("Generated 2026-10-08 00:17 UTC (2026-10-08 09:17 KST)", text)
         self.assertIn("## Now (1)", text)
-        self.assertIn("- [resonance-stream#1](https://github.com/star-resonance/resonance-stream/issues/1) Capture runs on Windows · P1 · P0 · target 2026-10-20", text)
+        self.assertIn("- [resonance-stream#1](https://github.com/star-resonance/resonance-stream/issues/1) Capture runs on Windows · P1 · target 2026-10-20", text)
         # a decision is an open item assigned to the maintainer; a closed one is not waiting
         self.assertIn("## Waiting on Kade (1)", text)
         self.assertIn("resonance-stream#6", text.split("## Waiting on Kade")[1].split("##")[0])
@@ -198,9 +203,9 @@ class Snapshot(unittest.TestCase):
         self.assertIn("## Needs iPhone (0)", text)
         self.assertNotIn("Needs Kade", text)
         self.assertIn("## NOT VERIFIED (1)", text)
-        # roadmap counts closed items as done
-        self.assertIn("### P0 Android spike: 1/2 done, target 2026-10-20", text)
-        self.assertIn("### P1 Vertical slice: 0/1 done", text)
+        # the Project has no Phase field, so there is no roadmap by phase
+        self.assertNotIn("Roadmap", text)
+        self.assertNotIn("phase", text.lower())
         # pipes in titles cannot break Markdown tables or lists
         self.assertIn("Fixed-point math / module", text)
         # the draft has no status, so it is backlog
