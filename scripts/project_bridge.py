@@ -286,6 +286,27 @@ def can_write(gh: GitHub, repo: str, user: str) -> bool:
     return out.get("role_name") in WRITE_ROLES or out.get("permission") in WRITE_ROLES
 
 
+def add_item(gh: GitHub, project: Project, content_id: str) -> str:
+    """Add an issue or pull request to the Project (a no-op if it is there); its item id."""
+    item = gh.graphql(ADD_ITEM, {"project": project.id, "content": content_id})
+    return item["addProjectV2ItemById"]["item"]["id"]
+
+
+def set_fields(gh: GitHub, project: Project, item_id: str, fields: dict[str, str]) -> list[str]:
+    """Set single-select fields on a Project item; one summary line per field."""
+    lines = []
+    for field_name, option_name in fields.items():
+        field_id, option_id = project.option(field_name, option_name)
+        gh.graphql(SET_OPTION, {"project": project.id, "item": item_id, "field": field_id, "option": option_id})
+        lines.append(f"- set {field_name} = {option_name}")
+    return lines
+
+
+def remove_labels(gh: GitHub, repo: str, number: int | str, labels: list[str]) -> None:
+    for label in labels:
+        gh.rest("DELETE", f"/repos/{repo}/issues/{number}/labels/{urllib.parse.quote(label, safe='')}")
+
+
 def summary(lines: list[str]) -> None:
     text = "\n".join(lines)
     print(text)
@@ -312,19 +333,12 @@ def cmd_sync(args: argparse.Namespace) -> int:
     project = parse_project(
         project_gh.graphql(PROJECT_QUERY, {"org": env["ORG"], "number": int(env["PROJECT_NUMBER"])})
     )
-    item = project_gh.graphql(ADD_ITEM, {"project": project.id, "content": env["ISSUE_NODE_ID"]})
-    item_id = item["addProjectV2ItemById"]["item"]["id"]
+    item_id = add_item(project_gh, project, env["ISSUE_NODE_ID"])
 
     lines = [f"### Project sync: {repo}#{number} ({action})", "- in Project: yes"]
-    for field_name, option_name in last_wins(plan.apply).items():
-        field_id, option_id = project.option(field_name, option_name)
-        project_gh.graphql(
-            SET_OPTION, {"project": project.id, "item": item_id, "field": field_id, "option": option_id}
-        )
-        lines.append(f"- set {field_name} = {option_name}")
+    lines += set_fields(project_gh, project, item_id, last_wins(plan.apply))
 
-    for label in plan.apply + plan.strip:
-        repo_gh.rest("DELETE", f"/repos/{repo}/issues/{number}/labels/{urllib.parse.quote(label, safe='')}")
+    remove_labels(repo_gh, repo, number, plan.apply + plan.strip)
     if plan.strip:
         lines.append(f"- ignored and removed {len(plan.strip)} command label(s): sender has no write access")
     if plan.unknown:
