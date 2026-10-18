@@ -16,7 +16,7 @@ Actions and on a developer machine:
 
   GH_TOKEN=$(gh auth token) python3 project_bridge.py snapshot \
       --org star-resonance --project 1 --out STATUS.md
-  GH_TOKEN=$(gh auth token) python3 project_bridge.py backfill       --org star-resonance --project 2 --repo enjay27/lakehouse --dry-run
+  GH_TOKEN=$(gh auth token) python3 project_bridge.py backfill       --org <org> --project <n> --repo <org>/<repo> --dry-run
 
 Nothing here prints issue titles to the log: the sync job runs in public repositories,
 whose Actions logs are public.
