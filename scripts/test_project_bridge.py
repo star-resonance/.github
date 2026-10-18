@@ -18,6 +18,7 @@ class ParseCommand(unittest.TestCase):
         self.assertEqual(pb.parse_command("cmd:verify-needs-macos"), ("Verification", "Needs macOS"))
         self.assertEqual(pb.parse_command("cmd:verify-needs-android"), ("Verification", "Needs Android device"))
         self.assertEqual(pb.parse_command("cmd:verify-needs-iphone"), ("Verification", "Needs iPhone"))
+        self.assertEqual(pb.parse_command("cmd:verify-needs-linux"), ("Verification", "Needs Linux test cluster"))
 
     def test_needs_kade_is_gone(self):
         # A decision is an assignee, not a Verification value; the old label is reported, not applied.
@@ -36,7 +37,7 @@ class ParseCommand(unittest.TestCase):
     def test_verification_environments_are_the_needs_options(self):
         self.assertEqual(
             pb.VERIFICATION_ENVIRONMENTS,
-            ["Needs Windows", "Needs macOS", "Needs Android device", "Needs iPhone"],
+            ["Needs Windows", "Needs macOS", "Needs Android device", "Needs iPhone", "Needs Linux test cluster"],
         )
         for option in pb.VERIFICATION_ENVIRONMENTS:
             self.assertIn(option, pb.VERIFICATION_OPTIONS)
@@ -211,6 +212,34 @@ class Snapshot(unittest.TestCase):
         # the draft has no status, so it is backlog
         self.assertIn("## Backlog (1)", text)
         self.assertIn("- draft Look at audio later", text)
+
+    def test_render_shows_only_the_environments_given(self):
+        # A Project renders a section for each Needs option it has, and for no other.
+        when = dt.datetime(2026, 10, 8, tzinfo=dt.timezone.utc)
+        resonance = ["Needs Windows", "Needs macOS", "Needs Android device", "Needs iPhone"]
+        text = pb.render_status(self.items, "Resonance", when, environments=resonance)
+        self.assertIn("## Needs iPhone (0)", text)
+        self.assertNotIn("Needs Linux", text)
+        text = pb.render_status([], "Lakehouse", when, environments=["Needs Linux test cluster"])
+        self.assertIn("## Needs Linux test cluster (0)", text)
+        self.assertNotIn("Needs Windows", text)
+
+    def test_render_without_environments_shows_them_all(self):
+        text = pb.render_status([], "Resonance", dt.datetime(2026, 10, 8, tzinfo=dt.timezone.utc))
+        for environment in pb.VERIFICATION_ENVIRONMENTS:
+            self.assertIn(f"## {environment} (0)", text)
+
+    def test_project_environments_follow_the_projects_options(self):
+        def project(options):
+            return pb.parse_project({"organization": {"projectV2": {"id": "PVT_1", "fields": {"nodes": [
+                {"id": "F_v", "name": "Verification", "options": [{"id": o, "name": o} for o in options]},
+            ]}}}})
+        # in the bridge's order, whatever the Project's order; Verified and NOT VERIFIED are not environments
+        self.assertEqual(
+            pb.project_environments(project(["Needs Linux test cluster", "Verified", "NOT VERIFIED", "Needs Windows"])),
+            ["Needs Windows", "Needs Linux test cluster"],
+        )
+        self.assertEqual(pb.project_environments(pb.parse_project(PROJECT_DATA)), [])
 
     def test_empty_project_renders(self):
         text = pb.render_status([], "Resonance", dt.datetime(2026, 10, 8, tzinfo=dt.timezone.utc))
