@@ -1,19 +1,22 @@
 #!/usr/bin/env python3
 """Bridge between issues and the organization Project.
 
-Two commands:
+Three commands:
 
   sync      Run by the project-sync workflow on an issue event. Adds the issue to the
             Project and applies command labels (cmd:<field>-<value>) to Project fields,
             then removes those labels. Labels are requests, never state.
   snapshot  Exports the Project to STATUS.md, which cloud sessions read because they
             cannot reach the Project API themselves.
+  backfill  Run once by hand when a repository joins a Project: adds its open issues and
+            applies the command labels they already carry, as sync would have.
 
 Both talk to GitHub with plain HTTPS (no third-party packages), so the same file runs in
 Actions and on a developer machine:
 
   GH_TOKEN=$(gh auth token) python3 project_bridge.py snapshot \
       --org star-resonance --project 1 --out STATUS.md
+  GH_TOKEN=$(gh auth token) python3 project_bridge.py backfill       --org star-resonance --project 2 --repo enjay27/lakehouse --dry-run
 
 Nothing here prints issue titles to the log: the sync job runs in public repositories,
 whose Actions logs are public.
@@ -115,6 +118,42 @@ def plan_labels(action: str, event_label: str, issue_labels: list[str], sender_c
     plan = Plan()
     for label in candidates:
         if not sender_can_write:
+            plan.strip.append(label)
+        elif parse_command(label):
+            plan.apply.append(label)
+        else:
+            plan.unknown.append(label)
+    return plan
+
+
+def labelers(events: list[dict]) -> dict[str, str]:
+    """Who last added each label, from an issue's events, ordered by when it was added."""
+    result: dict[str, str] = {}
+    for event in events:
+        if event.get("event") != "labeled" or not event.get("label"):
+            continue
+        label = event["label"].get("name", "")
+        result.pop(label, None)
+        result[label] = (event.get("actor") or {}).get("login", "")
+    return result
+
+
+def plan_backfill(labels: list[str], actors: dict[str, str], can_write) -> Plan:
+    """Decide which command labels already on an issue to apply, strip or report.
+
+    A label counts only if someone with write access added it (can_write(login)); one with
+    no labelling event on record is treated as an outsider's. Commands are in the order they
+    were added, so the later one wins per field, as in sync.
+    """
+    order = list(actors)
+    commands = sorted(
+        (label for label in labels if is_command(label)),
+        key=lambda label: order.index(label) if label in actors else -1,
+    )
+    plan = Plan()
+    for label in commands:
+        actor = actors.get(label, "")
+        if not actor or not can_write(actor):
             plan.strip.append(label)
         elif parse_command(label):
             plan.apply.append(label)
@@ -347,6 +386,79 @@ def cmd_sync(args: argparse.Namespace) -> int:
     return 0
 
 
+# --------------------------------------------------------------------------- backfill
+
+
+def paginate(gh: GitHub, path: str) -> list[dict]:
+    """Every entry of a REST list endpoint; path already has a query string."""
+    out, page = [], 1
+    while True:
+        batch = gh.rest("GET", f"{path}&per_page=100&page={page}") or []
+        out += batch
+        if len(batch) < 100:
+            return out
+        page += 1
+
+
+def cmd_backfill(args: argparse.Namespace) -> int:
+    token = os.environ.get("PROJECT_TOKEN") or os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN", "")
+    gh = GitHub(token)
+    repo = args.repo
+    project = parse_project(gh.graphql(PROJECT_QUERY, {"org": args.org, "number": args.project}))
+
+    writers: dict[str, bool] = {}
+
+    def writer(login: str) -> bool:
+        if login not in writers:
+            writers[login] = can_write(gh, repo, login)
+        return writers[login]
+
+    issues = [i for i in paginate(gh, f"/repos/{repo}/issues?state=open") if "pull_request" not in i]
+    # Plan every issue and check every option first: a run that stops halfway would leave
+    # some issues with their labels applied and removed, and the rest untouched.
+    plans, problems = [], []
+    for issue in issues:
+        number = issue["number"]
+        labels = [label["name"] for label in issue.get("labels", [])]
+        actors = {}
+        if any(is_command(label) for label in labels):
+            actors = labelers(paginate(gh, f"/repos/{repo}/issues/{number}/events?"))
+        plan = plan_backfill(labels, actors, writer)
+        for field_name, option_name in last_wins(plan.apply).items():
+            try:
+                project.option(field_name, option_name)
+            except GitHubError as err:
+                problems.append(f"- {repo}#{number}: {err}")
+        plans.append((issue, plan))
+
+    mode = " (dry run: nothing written)" if args.dry_run else ""
+    lines = [f"### Project backfill: {repo} into {args.org} Project {args.project}{mode}"]
+    if problems:
+        summary(lines + ["Nothing written: the Project lacks fields or options these issues ask for."] + problems)
+        return 1
+
+    fields_set = labels_removed = 0
+    for issue, plan in plans:
+        number = issue["number"]
+        fields = last_wins(plan.apply)
+        lines.append(f"- {repo}#{number}: in Project")
+        if args.dry_run:
+            lines += [f"  - set {name} = {option}" for name, option in fields.items()]
+        else:
+            item_id = add_item(gh, project, issue["node_id"])
+            lines += ["  " + line for line in set_fields(gh, project, item_id, fields)]
+            remove_labels(gh, repo, number, plan.apply + plan.strip)
+        fields_set += len(fields)
+        labels_removed += len(plan.apply + plan.strip)
+        if plan.strip:
+            lines.append(f"  - removed {len(plan.strip)} command label(s) no writer added")
+        if plan.unknown:
+            lines.append(f"  - unknown command label(s), left in place: {', '.join(plan.unknown)}")
+    lines.append(f"{len(issues)} open issue(s), {fields_set} field(s) set, {labels_removed} label(s) removed")
+    summary(lines)
+    return 0
+
+
 # --------------------------------------------------------------------------- snapshot
 
 
@@ -525,12 +637,19 @@ def main(argv: list[str] | None = None) -> int:
     snap.add_argument("--org", default=os.environ.get("ORG", "star-resonance"))
     snap.add_argument("--project", type=int, default=int(os.environ.get("PROJECT_NUMBER") or 0))
     snap.add_argument("--out", default="STATUS.md")
+    fill = sub.add_parser("backfill", help="add a repository's open issues and apply their command labels")
+    fill.add_argument("--org", default=os.environ.get("ORG", "star-resonance"))
+    fill.add_argument("--project", type=int, default=int(os.environ.get("PROJECT_NUMBER") or 0))
+    fill.add_argument("--repo", required=True, help="owner/name")
+    fill.add_argument("--dry-run", action="store_true", help="print what would change, write nothing")
     args = parser.parse_args(argv)
     try:
         if args.command == "sync":
             return cmd_sync(args)
         if not args.project:
             parser.error("--project (or PROJECT_NUMBER) is required")
+        if args.command == "backfill":
+            return cmd_backfill(args)
         return cmd_snapshot(args)
     except GitHubError as err:
         print(f"error: {err}", file=sys.stderr)
