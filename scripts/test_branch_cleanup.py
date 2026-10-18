@@ -62,7 +62,7 @@ class ClaudeBranches(unittest.TestCase):
 
 
 class GateBranches(unittest.TestCase):
-    """ADR-063 §5: a run deletes its own gate branch; this sweep deletes what a run left."""
+    """A run deletes its own gate branch; this sweep deletes what a run left."""
 
     def test_gate_branches_of_a_task_without_a_branch_are_deleted(self):
         branches = [branch("gate/apple/x"), branch("gate/linux/x")]

@@ -1,10 +1,10 @@
 """Branch cleanup: which `claude/*` and `gate/*` branches have outlived their work.
 
 1. `claude/<task>` goes when a merged PR of this repository has it as its head, the branch
-   still points at that PR's head commit, and no open PR has it as its head (ADR-053).
+   still points at that PR's head commit, and no open PR has it as its head.
 2. `gate/<type>/<task>`, of any type, goes when no other branch has the same task, counting
    the branches step 1 deletes as gone, and no open PR has that task. A gate run deletes its
-   own branch when it ends (app's ADR-063); this sweep deletes what a run left.
+   own branch when it ends; this sweep deletes what a run left.
 3. Everything else stays: `main`, `rc`, `status`, Kade's branches, a `claude/` branch with
    commits after its merge, and `gate/` names without a type and a task.
 
