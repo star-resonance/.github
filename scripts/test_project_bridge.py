@@ -285,5 +285,97 @@ class SyncCommand(unittest.TestCase):
                          ["/repos/star-resonance/resonance-stream/issues/7/labels/cmd%3Astatus-now"])
 
 
+class DateRequest(unittest.TestCase):
+    def test_start_and_target_take_a_calendar_date(self):
+        self.assertEqual(pb.parse_date_request("Target", "2026-11-01"), ("Target", "2026-11-01"))
+        self.assertEqual(pb.parse_date_request("start", " 2026-02-28 "), ("Start", "2026-02-28"))
+
+    def test_clear_removes_the_date(self):
+        self.assertEqual(pb.parse_date_request("Target", "clear"), ("Target", None))
+
+    def test_other_fields_are_refused(self):
+        # single-select fields are set with cmd: labels; dates are the only gap
+        for name in ("Status", "Priority", "Verification", "Title", ""):
+            with self.assertRaises(pb.RequestError):
+                pb.parse_date_request(name, "2026-11-01")
+
+    def test_only_yyyy_mm_dd_of_a_real_day(self):
+        for value in ("2026-13-01", "2026-02-30", "20261101", "2026-11-1", "next week", ""):
+            with self.assertRaises(pb.RequestError, msg=value):
+                pb.parse_date_request("Target", value)
+
+    def test_the_refusal_does_not_echo_the_value(self):
+        # a value is written by a person; it never reaches the public log
+        with self.assertRaises(pb.RequestError) as ctx:
+            pb.parse_date_request("Target", "::warning::hi")
+        self.assertNotIn("::warning::", str(ctx.exception))
+
+    def test_date_field_id(self):
+        project = pb.parse_project(PROJECT_DATA)
+        self.assertEqual(project.field_id("Target"), "F_target")
+        with self.assertRaises(pb.GitHubError):
+            project.field_id("Start")
+
+
+class SetDateCommand(unittest.TestCase):
+    """cmd_set_date end to end, with GitHub replaced by a recorder."""
+
+    def run_set_date(self, field, date, number="7"):
+        calls, printed = [], []
+
+        class FakeGitHub:
+            def __init__(self, token):
+                self.token = token
+
+            def graphql(self, query, variables):
+                calls.append(("graphql", query.split("(")[0].split()[-1], variables))
+                if "addProjectV2ItemById" in query:
+                    return {"addProjectV2ItemById": {"item": {"id": "ITEM_1"}}}
+                if "Value(" in query:
+                    return {}
+                return {"organization": {"projectV2": {"id": "PVT_1", "fields": {"nodes": [
+                    {"id": "F_start", "name": "Start"}, {"id": "F_target", "name": "Target"},
+                ]}}}}
+
+            def rest(self, method, path, body=None):
+                calls.append((method, path))
+                return {"node_id": "I_7", "title": "A title that stays out of the log"}
+
+        env = {
+            "REPO": "star-resonance/resonance-stream", "ISSUE_NUMBER": number, "FIELD": field, "DATE": date,
+            "ORG": "star-resonance", "PROJECT_NUMBER": "1", "PROJECT_TOKEN": "p", "GITHUB_TOKEN": "g",
+        }
+        with mock.patch.object(pb, "GitHub", FakeGitHub), mock.patch.dict(os.environ, env, clear=True), \
+                mock.patch("builtins.print", lambda *a, **k: printed.append(" ".join(map(str, a)))):
+            code = pb.main(["set-date"])
+        return code, calls, "\n".join(printed)
+
+    def test_sets_the_date_on_the_callers_issue(self):
+        code, calls, out = self.run_set_date("Target", "2026-11-01")
+        self.assertEqual(code, 0)
+        # the issue is read from the calling repository, so no other repository's issue can be named
+        self.assertIn(("GET", "/repos/star-resonance/resonance-stream/issues/7"), calls)
+        self.assertTrue([c for c in calls if c[0] == "graphql" and c[2].get("content") == "I_7"])
+        sets = [c[2] for c in calls if c[0] == "graphql" and "date" in c[2]]
+        self.assertEqual(sets, [{"project": "PVT_1", "item": "ITEM_1", "field": "F_target", "date": "2026-11-01"}])
+        self.assertIn("set Target = 2026-11-01", out)
+        self.assertNotIn("A title", out)
+
+    def test_clear(self):
+        code, calls, out = self.run_set_date("Start", "clear")
+        self.assertEqual(code, 0)
+        clears = [c for c in calls if c[0] == "graphql" and c[1] == "mutation" and "date" not in c[2]
+                  and c[2].get("field") == "F_start"]
+        self.assertEqual(len(clears), 1)
+        self.assertIn("cleared Start", out)
+
+    def test_bad_request_makes_no_call(self):
+        for field, date, number in (("Target", "soon", "7"), ("Status", "2026-11-01", "7"),
+                                    ("Target", "2026-11-01", "7/../../x")):
+            code, calls, _ = self.run_set_date(field, date, number)
+            self.assertEqual(code, 1, (field, date, number))
+            self.assertEqual(calls, [], (field, date, number))
+
+
 if __name__ == "__main__":
     unittest.main()
