@@ -1,6 +1,8 @@
-# Reusable: adds an issue to the star-resonance organization Project ("Resonance") and applies
-# its command labels (cmd:status-now, cmd:verify-not-verified, ...). Called from each synced
-# repository's project-sync.yml.
+# Reusable: adds an issue to an organization Project and applies its command labels
+# (cmd:status-now, cmd:verify-not-verified, ...). Called from each synced repository's
+# project-sync.yml. The Project belongs to the caller's organization ("Resonance" for
+# star-resonance), or to the organization named by `project-owner` for a repository owned
+# elsewhere; the bridge App must be installed there.
 #
 # Needs, as organization (or caller repository) settings:
 #   vars.PROJECT_NUMBER           the Project's number
@@ -13,6 +15,12 @@ name: Project sync (reusable)
 
 on:
   workflow_call:
+    inputs:
+      project-owner:
+        type: string
+        required: false
+        default: ""
+        description: The organization that owns the Project; empty means the caller's owner
     secrets:
       BRIDGE_APP_PRIVATE_KEY:
         required: false
@@ -45,7 +53,7 @@ jobs:
         with:
           client-id: ${{ vars.BRIDGE_APP_CLIENT_ID }}
           private-key: ${{ secrets.BRIDGE_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
+          owner: ${{ inputs.project-owner || github.repository_owner }}
           permission-organization-projects: write
           permission-issues: read
 
@@ -53,7 +61,7 @@ jobs:
         env:
           PROJECT_TOKEN: ${{ steps.app-token.outputs.token }}
           GITHUB_TOKEN: ${{ github.token }}
-          ORG: ${{ github.repository_owner }}
+          ORG: ${{ inputs.project-owner || github.repository_owner }}
           PROJECT_NUMBER: ${{ vars.PROJECT_NUMBER }}
           REPO: ${{ github.repository }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
