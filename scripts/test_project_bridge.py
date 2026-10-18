@@ -212,6 +212,12 @@ class Snapshot(unittest.TestCase):
         self.assertIn("## Backlog (1)", text)
         self.assertIn("- draft Look at audio later", text)
 
+    def test_start_is_shown_before_target(self):
+        items = pb.parse_items([page(node("Issue", 9, "Dated work", "OPEN",
+                                          {"Status": "Next", "Start": "2026-10-25", "Target": "2026-11-01"}))])
+        text = pb.render_status(items, "Resonance", dt.datetime(2026, 10, 8, tzinfo=dt.timezone.utc))
+        self.assertIn("Dated work · start 2026-10-25 · target 2026-11-01", text)
+
     def test_empty_project_renders(self):
         text = pb.render_status([], "Resonance", dt.datetime(2026, 10, 8, tzinfo=dt.timezone.utc))
         self.assertIn("## Now (0)", text)
