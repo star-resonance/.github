@@ -1,0 +1,21 @@
+name: Bug
+description: Something does not work as intended
+type: Bug
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happens
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What should happen
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: The app version, and the log or a screenshot if you have one (no chat lines of other players).
