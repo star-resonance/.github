@@ -1,0 +1,147 @@
+"""Tests for branch_cleanup.py. Run: python3 -m unittest discover -s scripts
+
+A copy of stella-rain/.github scripts/test_branch_cleanup.py at commit b68a250; its ADR numbers are
+Stella Rain's. A fix made in one copy is ported to the other by hand.
+
+Follows enjay27/lakehouse's scripts/test_branch_cleanup.py; `gate/` branches from app's ADR-063.
+"""
+
+import contextlib
+import io
+import json
+import os
+import sys
+import tempfile
+import unittest
+
+sys.path.insert(0, os.path.dirname(__file__))
+import branch_cleanup as cleanup  # noqa: E402
+
+REPO = "stella-rain/core"
+
+
+def branch(name, sha="a1"):
+    return {"name": name, "sha": sha}
+
+
+def pr(ref, sha="a1", state="closed", merged=True, repo=REPO):
+    return {"ref": ref, "sha": sha, "repo": repo, "state": state, "merged": merged}
+
+
+def delete(branches, prs):
+    return cleanup.to_delete(branches, prs, REPO)
+
+
+class ClaudeBranches(unittest.TestCase):
+    def test_a_merged_branch_still_at_the_pr_head_is_deleted(self):
+        self.assertEqual(delete([branch("claude/x")], [pr("claude/x")]), ["claude/x"])
+
+    def test_a_branch_with_commits_after_the_merge_is_kept(self):
+        self.assertEqual(delete([branch("claude/x", sha="b2")], [pr("claude/x", sha="a1")]), [])
+
+    def test_a_pr_closed_without_merging_keeps_its_branch(self):
+        self.assertEqual(delete([branch("claude/x")], [pr("claude/x", merged=False)]), [])
+
+    def test_a_branch_without_a_pr_is_kept(self):
+        self.assertEqual(delete([branch("claude/x")], []), [])
+
+    def test_an_open_pr_from_the_branch_keeps_it(self):
+        prs = [pr("claude/x"), pr("claude/x", state="open", merged=False)]
+        self.assertEqual(delete([branch("claude/x")], prs), [])
+
+    def test_a_merged_pr_from_a_fork_with_the_same_name_does_not_count(self):
+        self.assertEqual(delete([branch("claude/x")], [pr("claude/x", repo="fork/core")]), [])
+
+    def test_kades_and_other_branches_are_never_deleted(self):
+        for name in ("main", "rc", "status", "kade/x", "x", "claude"):
+            with self.subTest(name=name):
+                self.assertEqual(delete([branch(name)], [pr(name)]), [])
+
+    def test_an_older_merged_pr_at_another_commit_does_not_hide_the_latest(self):
+        prs = [pr("claude/x", sha="a1"), pr("claude/x", sha="b2")]
+        self.assertEqual(delete([branch("claude/x", sha="b2")], prs), ["claude/x"])
+
+    def test_several_branches_are_listed_sorted(self):
+        branches = [branch("claude/b"), branch("claude/a"), branch("claude/c", sha="z9")]
+        prs = [pr("claude/b"), pr("claude/a"), pr("claude/c")]
+        self.assertEqual(delete(branches, prs), ["claude/a", "claude/b"])
+
+
+class GateBranches(unittest.TestCase):
+    """ADR-063 §5: a run deletes its own gate branch; this sweep deletes what a run left."""
+
+    def test_gate_branches_of_a_task_without_a_branch_are_deleted(self):
+        branches = [branch("gate/apple/x"), branch("gate/linux/x")]
+        self.assertEqual(delete(branches, []), ["gate/apple/x", "gate/linux/x"])
+
+    def test_gate_branches_go_with_the_claude_branch_deleted_in_the_same_sweep(self):
+        branches = [branch("claude/x"), branch("gate/apple/x")]
+        self.assertEqual(delete(branches, [pr("claude/x")]), ["claude/x", "gate/apple/x"])
+
+    def test_gate_branches_stay_while_the_claude_branch_exists(self):
+        self.assertEqual(delete([branch("claude/x"), branch("gate/apple/x")], []), [])
+
+    def test_gate_branches_stay_while_kades_branch_for_the_task_exists(self):
+        self.assertEqual(delete([branch("kade/x"), branch("gate/apple/x")], []), [])
+
+    def test_gate_branches_stay_while_an_open_pr_has_the_task(self):
+        prs = [pr("claude/x", state="open", merged=False)]
+        self.assertEqual(delete([branch("gate/apple/x")], prs), [])
+
+    def test_a_merged_branch_that_gained_commits_keeps_its_gate_branches(self):
+        branches = [branch("claude/x", sha="b2"), branch("gate/apple/x")]
+        self.assertEqual(delete(branches, [pr("claude/x", sha="a1")]), [])
+
+    def test_only_the_tasks_without_work_go(self):
+        branches = [branch("claude/x"), branch("claude/y", sha="z9"),
+                    branch("gate/apple/x"), branch("gate/apple/y")]
+        self.assertEqual(delete(branches, [pr("claude/x")]), ["claude/x", "gate/apple/x"])
+
+    def test_a_task_with_a_slash_is_matched_whole(self):
+        branches = [branch("claude/a/b"), branch("gate/apple/a/b"), branch("gate/apple/a")]
+        self.assertEqual(delete(branches, []), ["gate/apple/a"])
+
+    def test_every_gate_type_follows_the_same_rule(self):
+        for name in ("gate/apple/x", "gate/ios/x", "gate/other/x"):
+            with self.subTest(name=name):
+                self.assertEqual(delete([branch(name)], []), [name])
+
+    def test_gate_names_without_a_type_and_a_task_are_kept(self):
+        for name in ("gate/apple", "gate/apple/", "gate//x", "gate"):
+            with self.subTest(name=name):
+                self.assertEqual(delete([branch(name)], []), [])
+
+
+class Main(unittest.TestCase):
+    def write(self, folder, name, data):
+        path = os.path.join(folder, name)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+        return path
+
+    def test_prints_one_branch_per_line(self):
+        with tempfile.TemporaryDirectory() as d:
+            branches = self.write(d, "b.json", [branch("claude/x"), branch("claude/y")])
+            prs = self.write(d, "p.json", [pr("claude/x"), pr("claude/y")])
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = cleanup.main(["branch_cleanup.py", branches, prs, REPO])
+        self.assertEqual(code, 0)
+        self.assertEqual(out.getvalue(), "claude/x\nclaude/y\n")
+
+    def test_nothing_to_delete_prints_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            branches = self.write(d, "b.json", [branch("main")])
+            prs = self.write(d, "p.json", [])
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = cleanup.main(["branch_cleanup.py", branches, prs, REPO])
+        self.assertEqual((code, out.getvalue()), (0, ""))
+
+    def test_wrong_arguments_exit_2(self):
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(cleanup.main(["branch_cleanup.py"]), 2)
+
+
+if __name__ == "__main__":
+    unittest.main()
