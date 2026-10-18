@@ -507,6 +507,8 @@ def _line(item: Item) -> str:
     tags = []
     if item.values.get(FIELD_PRIORITY):
         tags.append(item.values[FIELD_PRIORITY])
+    if item.values.get(FIELD_START):
+        tags.append(f"start {item.values[FIELD_START]}")
     if item.values.get(FIELD_TARGET):
         tags.append(f"target {item.values[FIELD_TARGET]}")
     if item.state in ("CLOSED", "MERGED"):
