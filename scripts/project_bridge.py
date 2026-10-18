@@ -37,20 +37,12 @@ WRITE_ROLES = {"admin", "maintain", "write"}
 
 # Field and option names must match the Project exactly (see the setup runbook).
 FIELD_STATUS = "Status"
-FIELD_PHASE = "Phase"
 FIELD_VERIFICATION = "Verification"
 FIELD_PRIORITY = "Priority"
 FIELD_START = "Start"
 FIELD_TARGET = "Target"
 
 STATUS_OPTIONS = ["Backlog", "Next", "Now", "In review", "Done"]
-PHASE_OPTIONS = [
-    "P0 Android spike",
-    "P1 Vertical slice",
-    "P2 Editor + replay + publish",
-    "P3 Closed test",
-    "P4 Ads",
-]
 # A check that cannot run in a cloud session or in CI waits for a machine or a device. A
 # decision is not a verification: it is an issue assigned to a maintainer (MAINTAINERS).
 VERIFICATION_ENVIRONMENTS = ["Needs Windows", "Needs macOS", "Needs Android device", "Needs iPhone"]
@@ -65,11 +57,6 @@ COMMANDS: dict[str, tuple[str, str]] = {
     "status-now": (FIELD_STATUS, "Now"),
     "status-in-review": (FIELD_STATUS, "In review"),
     "status-done": (FIELD_STATUS, "Done"),
-    "phase-p0": (FIELD_PHASE, PHASE_OPTIONS[0]),
-    "phase-p1": (FIELD_PHASE, PHASE_OPTIONS[1]),
-    "phase-p2": (FIELD_PHASE, PHASE_OPTIONS[2]),
-    "phase-p3": (FIELD_PHASE, PHASE_OPTIONS[3]),
-    "phase-p4": (FIELD_PHASE, PHASE_OPTIONS[4]),
     "verify-verified": (FIELD_VERIFICATION, "Verified"),
     "verify-not-verified": (FIELD_VERIFICATION, "NOT VERIFIED"),
     "verify-needs-windows": (FIELD_VERIFICATION, "Needs Windows"),
@@ -426,13 +413,11 @@ def _sort_key(item: Item):
     return (prio, item.repo, item.number or 0, item.title)
 
 
-def _line(item: Item, show_phase: bool = True) -> str:
+def _line(item: Item) -> str:
     ref = f"[{item.ref()}]({item.url})" if item.url else item.ref()
     tags = []
     if item.values.get(FIELD_PRIORITY):
         tags.append(item.values[FIELD_PRIORITY])
-    if show_phase and item.values.get(FIELD_PHASE):
-        tags.append(item.values[FIELD_PHASE].split(" ")[0])
     if item.values.get(FIELD_TARGET):
         tags.append(f"target {item.values[FIELD_TARGET]}")
     if item.state in ("CLOSED", "MERGED"):
@@ -441,13 +426,13 @@ def _line(item: Item, show_phase: bool = True) -> str:
     return f"- {ref} {_clean(item.title)}{suffix}"
 
 
-def _section(title: str, items: list[Item], limit: int | None = None, show_phase: bool = True) -> list[str]:
+def _section(title: str, items: list[Item], limit: int | None = None) -> list[str]:
     items = sorted(items, key=_sort_key)
     out = [f"## {title} ({len(items)})", ""]
     if not items:
         out.append("- none")
     shown = items if limit is None else items[:limit]
-    out += [_line(i, show_phase) for i in shown]
+    out += [_line(i) for i in shown]
     if limit is not None and len(items) > limit:
         out.append(f"- … {len(items) - limit} more in the Project")
     out.append("")
@@ -477,24 +462,6 @@ def render_status(items: list[Item], project_title: str, generated: dt.datetime,
         "NOT VERIFIED", [i for i in items if i.values.get(FIELD_VERIFICATION) == "NOT VERIFIED"], limit=30
     )
     lines += _section("Next", [i for i in open_items if i.status == "Next"])
-
-    lines += ["## Roadmap", ""]
-    for phase in PHASE_OPTIONS:
-        in_phase = [i for i in items if i.values.get(FIELD_PHASE) == phase]
-        if not in_phase:
-            continue
-        done = sum(1 for i in in_phase if not i.is_open)
-        targets = sorted(i.values[FIELD_TARGET] for i in in_phase if i.values.get(FIELD_TARGET))
-        when = f", target {targets[-1]}" if targets else ""
-        lines.append(f"### {phase}: {done}/{len(in_phase)} done{when}")
-        lines.append("")
-        lines += [_line(i, show_phase=False) for i in sorted([i for i in in_phase if i.is_open], key=_sort_key)]
-        lines.append("")
-    unphased = [i for i in open_items if not i.values.get(FIELD_PHASE)]
-    if unphased:
-        lines.append(f"Open items with no phase: {len(unphased)}")
-        lines.append("")
-
     lines += _section(
         "Backlog", [i for i in open_items if i.status in ("Backlog", "")], limit=40
     )
