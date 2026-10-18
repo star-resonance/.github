@@ -8,21 +8,20 @@ It holds no project data.
 
 | Path | What |
 |---|---|
-| `scripts/project_bridge.py` | Bridge: `sync` (issue event to Project fields), `snapshot` (Project to `STATUS.md`) and `backfill` (a repository's open issues and their labels, once, by hand) |
+| `scripts/project_bridge.py` | Bridge: `sync` (issue event to Project fields) and `snapshot` (Project to `STATUS.md`) |
 | `scripts/auto_merge_gate.py` | Auto-merge verdict (`merge`, `wait`, `stop`) from a commit's checks, required checks, draft state and changed files; the issues a merged PR closes |
 | `scripts/branch_cleanup.py` | Which `claude/*` and `gate/*` branches to delete: a merged PR's branch still at its head, and a gate branch whose task is gone |
 | `scripts/claude_md_check.py` | `CLAUDE.md` at most 100 lines; `.claude/rules/*.md` at most 80 lines with `paths:` |
 | `scripts/test_*.py` | Unit tests for the scripts |
 | `.github/workflows/project-sync.yml` | Reusable: called by `resonance-stream` and `resonance-lab` on issue events |
-| `.github/workflows/project-snapshot.yml` | Reusable: the caller's organization Project to `STATUS.md` on its `status` branch |
 | `.github/workflows/auto-merge.yml` | Reusable: merges a green `claude/*` PR into `main`; inputs `require` (checks) and `protected` (paths); output `merged`; drafts and PRs touching `.github/workflows/` are left to Kade |
 | `.github/workflows/branch-cleanup.yml` | Reusable, and runs here: deletes merged `claude/*` branches and leftover `gate/*` branches |
 | `.github/workflows/claude-md-check.yml`, `eol-check.yml` | Reusable, and run here: the `CLAUDE.md` limits; LF line endings |
 | `.github/workflows/test.yml` | Unit tests on push and PR |
 | `.github/ISSUE_TEMPLATE/`, `.github/PULL_REQUEST_TEMPLATE.md`, `.github/dependabot.yml` | Defaults for repos without their own; monthly Actions bumps here |
 
-`resonance-stream` and `resonance-lab` keep their own `project-snapshot.yml`, which checks out
-this repository to run `snapshot`; a new caller uses the reusable one.
+`project-snapshot.yml` in each caller checks out this repository to run `snapshot`; it is not
+reusable from here.
 
 ## Rules
 
