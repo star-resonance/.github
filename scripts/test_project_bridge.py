@@ -438,6 +438,19 @@ class BackfillCommand(unittest.TestCase):
         self.assertIn("set Status = Now", out)
         self.assertIn("dry run", out)
 
+    def test_an_option_the_project_lacks_stops_before_anything_is_written(self):
+        issues = self.ISSUES + [{"number": 13, "node_id": "I_13", "title": "secret title",
+                                 "labels": [{"name": "cmd:priority-p1"}]}]
+        events = {**self.EVENTS, 13: [labeled("cmd:priority-p1", "enjay27")]}
+        with mock.patch.object(BackfillCommand, "ISSUES", issues), mock.patch.object(BackfillCommand, "EVENTS", events):
+            code, calls, out = self.run_backfill(
+                ["backfill", "--org", "star-resonance", "--project", "9", "--repo", "enjay27/lakehouse"])
+        self.assertEqual(code, 1)
+        self.assertFalse([c for c in calls if c[0] == "DELETE"])
+        self.assertFalse([c for c in calls if c[0] == "graphql" and ("content" in c[1] or "option" in c[1])])
+        self.assertIn("enjay27/lakehouse#13", out)
+        self.assertIn("Priority", out)
+
     def test_repo_is_required(self):
         with mock.patch("sys.stderr"), self.assertRaises(SystemExit):
             pb.main(["backfill", "--org", "star-resonance", "--project", "9"])
