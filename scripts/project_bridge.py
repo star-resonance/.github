@@ -45,7 +45,10 @@ FIELD_TARGET = "Target"
 STATUS_OPTIONS = ["Backlog", "Next", "Now", "In review", "Done"]
 # A check that cannot run in a cloud session or in CI waits for a machine or a device. A
 # decision is not a verification: it is an issue assigned to a maintainer (MAINTAINERS).
-VERIFICATION_ENVIRONMENTS = ["Needs Windows", "Needs macOS", "Needs Android device", "Needs iPhone"]
+# A Project has only the environments its repositories need; the snapshot shows those it has.
+VERIFICATION_ENVIRONMENTS = [
+    "Needs Windows", "Needs macOS", "Needs Android device", "Needs iPhone", "Needs Linux test cluster",
+]
 VERIFICATION_OPTIONS = ["Verified", "NOT VERIFIED"] + VERIFICATION_ENVIRONMENTS
 MAINTAINERS = {"enjay27"}
 PRIORITY_OPTIONS = ["P1", "P2", "P3"]
@@ -63,6 +66,7 @@ COMMANDS: dict[str, tuple[str, str]] = {
     "verify-needs-macos": (FIELD_VERIFICATION, "Needs macOS"),
     "verify-needs-android": (FIELD_VERIFICATION, "Needs Android device"),
     "verify-needs-iphone": (FIELD_VERIFICATION, "Needs iPhone"),
+    "verify-needs-linux": (FIELD_VERIFICATION, "Needs Linux test cluster"),
     "priority-p1": (FIELD_PRIORITY, "P1"),
     "priority-p2": (FIELD_PRIORITY, "P2"),
     "priority-p3": (FIELD_PRIORITY, "P3"),
@@ -249,6 +253,12 @@ class Project:
         if not opt:
             raise GitHubError(f"Field {field_name!r} has no option {option_name!r}")
         return f["id"], opt
+
+
+def project_environments(project: Project) -> list[str]:
+    """The Verification environments this Project has, in the bridge's order."""
+    options = project.fields.get(FIELD_VERIFICATION, {}).get("options", {})
+    return [environment for environment in VERIFICATION_ENVIRONMENTS if environment in options]
 
 
 def parse_project(data: dict) -> Project:
@@ -439,7 +449,13 @@ def _section(title: str, items: list[Item], limit: int | None = None) -> list[st
     return out
 
 
-def render_status(items: list[Item], project_title: str, generated: dt.datetime, project_url: str = "") -> str:
+def render_status(
+    items: list[Item],
+    project_title: str,
+    generated: dt.datetime,
+    project_url: str = "",
+    environments: list[str] | None = None,
+) -> str:
     open_items = [i for i in items if i.is_open]
     stamp = generated.astimezone(dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     kst = generated.astimezone(dt.timezone(dt.timedelta(hours=9))).strftime("%Y-%m-%d %H:%M KST")
@@ -456,7 +472,7 @@ def render_status(items: list[Item], project_title: str, generated: dt.datetime,
     lines += _section("Waiting on Kade", [i for i in items if i.waits_on_maintainer])
     # Verification is independent of Status: closing an issue moves it to Done, but it stays
     # here until Kade has run the check and sets Verification to Verified.
-    for environment in VERIFICATION_ENVIRONMENTS:
+    for environment in VERIFICATION_ENVIRONMENTS if environments is None else environments:
         lines += _section(environment, [i for i in items if i.values.get(FIELD_VERIFICATION) == environment])
     lines += _section(
         "NOT VERIFIED", [i for i in items if i.values.get(FIELD_VERIFICATION) == "NOT VERIFIED"], limit=30
@@ -471,10 +487,13 @@ def render_status(items: list[Item], project_title: str, generated: dt.datetime,
 def cmd_snapshot(args: argparse.Namespace) -> int:
     token = os.environ.get("PROJECT_TOKEN") or os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN", "")
     gh = GitHub(token)
+    project = parse_project(gh.graphql(PROJECT_QUERY, {"org": args.org, "number": args.project}))
     pages = fetch_pages(gh, args.org, args.project)
     title = pages[0]["organization"]["projectV2"]["title"]
     url = f"https://github.com/orgs/{args.org}/projects/{args.project}"
-    text = render_status(parse_items(pages), title, dt.datetime.now(dt.timezone.utc), url)
+    text = render_status(
+        parse_items(pages), title, dt.datetime.now(dt.timezone.utc), url, project_environments(project)
+    )
     with open(args.out, "w", encoding="utf-8") as fh:
         fh.write(text)
     print(f"wrote {args.out}: {len(text.splitlines())} lines")
