@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Bridge between issues and the organization Project.
 
-Two commands:
+Three commands:
 
   sync      Run by the project-sync workflow on an issue event. Adds the issue to the
             Project and applies command labels (cmd:<field>-<value>) to Project fields,
             then removes those labels. Labels are requests, never state.
+  set-date  Run by the project-set workflow (workflow_dispatch): sets or clears an issue's
+            Start or Target date, which no label can carry.
   snapshot  Exports the Project to STATUS.md, which cloud sessions read because they
             cannot reach the Project API themselves.
 
@@ -25,6 +27,7 @@ import argparse
 import datetime as dt
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.parse
@@ -41,6 +44,8 @@ FIELD_VERIFICATION = "Verification"
 FIELD_PRIORITY = "Priority"
 FIELD_START = "Start"
 FIELD_TARGET = "Target"
+DATE_FIELDS = [FIELD_START, FIELD_TARGET]
+CLEAR = "clear"
 
 STATUS_OPTIONS = ["Backlog", "Next", "Now", "In review", "Done"]
 # A check that cannot run in a cloud session or in CI waits for a machine or a device. A
@@ -129,6 +134,31 @@ def last_wins(labels: list[str]) -> dict[str, str]:
     return result
 
 
+class RequestError(ValueError):
+    """A set-date request that is refused before any API call."""
+
+
+def parse_date_request(field_name: str, value: str) -> tuple[str, str | None]:
+    """(field, YYYY-MM-DD) to set a date, or (field, None) to clear it.
+
+    The refusal never repeats the value: it was typed by a person and the log is public.
+    """
+    by_lower = {name.lower(): name for name in DATE_FIELDS}
+    canonical = by_lower.get(field_name.strip().lower())
+    if not canonical:
+        raise RequestError(f"field must be one of {', '.join(DATE_FIELDS)}")
+    value = value.strip()
+    if value.lower() == CLEAR:
+        return canonical, None
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        raise RequestError(f"date must be YYYY-MM-DD or {CLEAR!r}")
+    try:
+        dt.date.fromisoformat(value)
+    except ValueError:
+        raise RequestError("date is not a real day") from None
+    return canonical, value
+
+
 # --------------------------------------------------------------------------- GitHub I/O
 
 
@@ -201,6 +231,22 @@ mutation($project: ID!, $item: ID!, $field: ID!, $option: String!) {
 }
 """
 
+SET_DATE = """
+mutation($project: ID!, $item: ID!, $field: ID!, $date: Date!) {
+  updateProjectV2ItemFieldValue(input: {
+    projectId: $project, itemId: $item, fieldId: $field, value: {date: $date}
+  }) { projectV2Item { id } }
+}
+"""
+
+CLEAR_FIELD = """
+mutation($project: ID!, $item: ID!, $field: ID!) {
+  clearProjectV2ItemFieldValue(input: {projectId: $project, itemId: $item, fieldId: $field}) {
+    projectV2Item { id }
+  }
+}
+"""
+
 ITEMS_QUERY = """
 query($org: String!, $number: Int!, $cursor: String) {
   organization(login: $org) {
@@ -241,6 +287,12 @@ class Project:
     id: str
     fields: dict[str, dict]  # name -> {"id": ..., "options": {name: id}}
 
+    def field_id(self, field_name: str) -> str:
+        f = self.fields.get(field_name)
+        if not f:
+            raise GitHubError(f"Project has no field named {field_name!r}")
+        return f["id"]
+
     def option(self, field_name: str, option_name: str) -> tuple[str, str]:
         f = self.fields.get(field_name)
         if not f:
@@ -276,6 +328,17 @@ def can_write(gh: GitHub, repo: str, user: str) -> bool:
     return out.get("role_name") in WRITE_ROLES or out.get("permission") in WRITE_ROLES
 
 
+def add_item(gh: GitHub, project: Project, content_id: str) -> str:
+    """Add an issue or pull request to the Project (a no-op when it is there); its item id."""
+    item = gh.graphql(ADD_ITEM, {"project": project.id, "content": content_id})
+    return item["addProjectV2ItemById"]["item"]["id"]
+
+
+def set_option(gh: GitHub, project: Project, item_id: str, field_name: str, option_name: str) -> None:
+    field_id, option_id = project.option(field_name, option_name)
+    gh.graphql(SET_OPTION, {"project": project.id, "item": item_id, "field": field_id, "option": option_id})
+
+
 def summary(lines: list[str]) -> None:
     text = "\n".join(lines)
     print(text)
@@ -302,15 +365,11 @@ def cmd_sync(args: argparse.Namespace) -> int:
     project = parse_project(
         project_gh.graphql(PROJECT_QUERY, {"org": env["ORG"], "number": int(env["PROJECT_NUMBER"])})
     )
-    item = project_gh.graphql(ADD_ITEM, {"project": project.id, "content": env["ISSUE_NODE_ID"]})
-    item_id = item["addProjectV2ItemById"]["item"]["id"]
+    item_id = add_item(project_gh, project, env["ISSUE_NODE_ID"])
 
     lines = [f"### Project sync: {repo}#{number} ({action})", "- in Project: yes"]
     for field_name, option_name in last_wins(plan.apply).items():
-        field_id, option_id = project.option(field_name, option_name)
-        project_gh.graphql(
-            SET_OPTION, {"project": project.id, "item": item_id, "field": field_id, "option": option_id}
-        )
+        set_option(project_gh, project, item_id, field_name, option_name)
         lines.append(f"- set {field_name} = {option_name}")
 
     for label in plan.apply + plan.strip:
@@ -319,6 +378,36 @@ def cmd_sync(args: argparse.Namespace) -> int:
         lines.append(f"- ignored and removed {len(plan.strip)} command label(s): sender has no write access")
     if plan.unknown:
         lines.append(f"- unknown command label(s), left in place: {', '.join(plan.unknown)}")
+    summary(lines)
+    return 0
+
+
+def cmd_set_date(args: argparse.Namespace) -> int:
+    env = os.environ
+    repo = env["REPO"]
+    number = env.get("ISSUE_NUMBER", "").strip()
+    if not number.isdigit():
+        raise RequestError("issue must be a number")
+    field_name, date = parse_date_request(env.get("FIELD", ""), env.get("DATE", ""))
+
+    project_gh = GitHub(env.get("PROJECT_TOKEN", ""))
+    repo_gh = GitHub(env.get("GITHUB_TOKEN", ""))
+
+    # Read with the caller's own token from the caller's own repository: only its issues resolve.
+    issue = repo_gh.rest("GET", f"/repos/{repo}/issues/{number}") or {}
+    project = parse_project(
+        project_gh.graphql(PROJECT_QUERY, {"org": env["ORG"], "number": int(env["PROJECT_NUMBER"])})
+    )
+    field_id = project.field_id(field_name)
+    item_id = add_item(project_gh, project, issue["node_id"])
+    variables = {"project": project.id, "item": item_id, "field": field_id}
+    lines = [f"### Project set: {repo}#{number}", "- in Project: yes"]
+    if date is None:
+        project_gh.graphql(CLEAR_FIELD, variables)
+        lines.append(f"- cleared {field_name}")
+    else:
+        project_gh.graphql(SET_DATE, {**variables, "date": date})
+        lines.append(f"- set {field_name} = {date}")
     summary(lines)
     return 0
 
@@ -418,6 +507,8 @@ def _line(item: Item) -> str:
     tags = []
     if item.values.get(FIELD_PRIORITY):
         tags.append(item.values[FIELD_PRIORITY])
+    if item.values.get(FIELD_START):
+        tags.append(f"start {item.values[FIELD_START]}")
     if item.values.get(FIELD_TARGET):
         tags.append(f"target {item.values[FIELD_TARGET]}")
     if item.state in ("CLOSED", "MERGED"):
@@ -488,6 +579,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("sync", help="apply one issue event (reads its inputs from the environment)")
+    sub.add_parser("set-date", help="set or clear Start or Target (reads its inputs from the environment)")
     snap = sub.add_parser("snapshot", help="export the Project to a Markdown file")
     snap.add_argument("--org", default=os.environ.get("ORG", "star-resonance"))
     snap.add_argument("--project", type=int, default=int(os.environ.get("PROJECT_NUMBER") or 0))
@@ -496,10 +588,12 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "sync":
             return cmd_sync(args)
+        if args.command == "set-date":
+            return cmd_set_date(args)
         if not args.project:
             parser.error("--project (or PROJECT_NUMBER) is required")
         return cmd_snapshot(args)
-    except GitHubError as err:
+    except (GitHubError, RequestError) as err:
         print(f"error: {err}", file=sys.stderr)
         return 1
 

@@ -1,0 +1,73 @@
+# Reusable: sets or clears an issue's Start or Target date on the star-resonance organization
+# Project ("Resonance"). No cmd: label can carry a date and a cloud session cannot reach the
+# Project API, so a session starts its repository's project-set.yml (workflow_dispatch, a call
+# under its own repository), which calls this. Only people with write access can start it.
+#
+# Needs the same settings as project-sync.yml: vars.PROJECT_NUMBER, vars.BRIDGE_APP_CLIENT_ID and
+# secrets.BRIDGE_APP_PRIVATE_KEY (passed by name).
+#
+# The inputs reach the script only as environment variables, never inside `run:`, and the script
+# checks them before any API call. It never prints issue titles: Actions logs are public.
+name: Project set (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      issue:
+        description: Issue number in the calling repository
+        type: string
+        required: true
+      field:
+        description: Start or Target
+        type: string
+        required: true
+      date:
+        description: YYYY-MM-DD, or "clear"
+        type: string
+        required: true
+    secrets:
+      BRIDGE_APP_PRIVATE_KEY:
+        required: false
+        description: The bridge GitHub App's private key
+
+permissions: {}
+
+jobs:
+  set:
+    name: set a date on the Project
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: read  # read the issue's node id from the calling repository
+    concurrency:
+      group: project-set-${{ github.repository }}-${{ inputs.issue }}
+      cancel-in-progress: false
+    steps:
+      - name: Check out the bridge script
+        uses: actions/checkout@v7
+        with:
+          repository: star-resonance/.github
+          ref: main
+          path: .bridge
+          persist-credentials: false
+
+      - name: Get a Project token from the bridge App
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.BRIDGE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.BRIDGE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-organization-projects: write
+
+      - name: Set
+        env:
+          PROJECT_TOKEN: ${{ steps.app-token.outputs.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          ORG: ${{ github.repository_owner }}
+          PROJECT_NUMBER: ${{ vars.PROJECT_NUMBER }}
+          REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ inputs.issue }}
+          FIELD: ${{ inputs.field }}
+          DATE: ${{ inputs.date }}
+        run: python3 .bridge/scripts/project_bridge.py set-date
