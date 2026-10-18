@@ -1,11 +1,4 @@
-"""Tests for auto_merge_gate.py. Run: python3 -m unittest discover -s scripts
-
-A copy of stella-rain/.github scripts/test_auto_merge_gate.py at commit b68a250; its ADR numbers are
-Stella Rain's. A fix made in one copy is ported to the other by hand.
-
-RequiredChecks, DraftsAndProtectedPaths and CommandLine follow enjay27/lakehouse's
-scripts/test_auto_merge_gate.py, itself a port of this file.
-"""
+"""Tests for auto_merge_gate.py. Run: python3 -m unittest discover -s scripts"""
 
 import contextlib
 import io

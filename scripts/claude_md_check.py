@@ -1,8 +1,5 @@
 """Checks a repository's Claude configuration stays within its limits.
 
-A copy of stella-rain/.github scripts/claude_md_check.py at commit b68a250; its ADR numbers are
-Stella Rain's. A fix made in one copy is ported to the other by hand.
-
 - `CLAUDE.md` exists and has at most 100 lines (it is loaded in every session).
 - Every `.claude/rules/**/*.md` has at most 80 lines and a non-empty `paths:` in its front
   matter, so it loads only when the files it concerns are touched.

@@ -3,8 +3,6 @@
 # Reusable: resonance-stream and resonance-lab call it from their eol-check.yml. It also runs
 # on this repository.
 # `runs-on` lets a private caller pick its own runner; here and by default, ubuntu-latest.
-# A copy of stella-rain/.github's workflow at commit b68a250; a fix made in one copy is
-# ported to the other by hand.
 name: Line endings
 
 on:

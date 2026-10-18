@@ -1,10 +1,4 @@
-"""Tests for branch_cleanup.py. Run: python3 -m unittest discover -s scripts
-
-A copy of stella-rain/.github scripts/test_branch_cleanup.py at commit b68a250; its ADR numbers are
-Stella Rain's. A fix made in one copy is ported to the other by hand.
-
-Follows enjay27/lakehouse's scripts/test_branch_cleanup.py; `gate/` branches from app's ADR-063.
-"""
+"""Tests for branch_cleanup.py. Run: python3 -m unittest discover -s scripts"""
 
 import contextlib
 import io

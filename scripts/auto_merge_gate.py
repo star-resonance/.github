@@ -1,8 +1,5 @@
 """Decides whether a pull request's head commit is green enough to auto-merge.
 
-A copy of stella-rain/.github scripts/auto_merge_gate.py at commit b68a250; its ADR numbers are
-Stella Rain's. A fix made in one copy is ported to the other by hand.
-
 Reads the commit's check runs and its combined commit status (as the GitHub REST API returns
 them) and prints one word:
 

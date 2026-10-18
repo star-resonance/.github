@@ -1,8 +1,5 @@
 """Branch cleanup: which `claude/*` and `gate/*` branches have outlived their work.
 
-A copy of stella-rain/.github scripts/branch_cleanup.py at commit b68a250; its ADR numbers are
-Stella Rain's. A fix made in one copy is ported to the other by hand.
-
 1. `claude/<task>` goes when a merged PR of this repository has it as its head, the branch
    still points at that PR's head commit, and no open PR has it as its head (ADR-053).
 2. `gate/<type>/<task>`, of any type, goes when no other branch has the same task, counting

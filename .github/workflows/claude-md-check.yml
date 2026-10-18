@@ -4,9 +4,6 @@
 # runs the script of the commit under test, so a PR that changes the script checks itself (and
 # the PR that added it found no script on main).
 # `runs-on` lets a private caller pick its own runner; here and by default, ubuntu-latest.
-# A copy of stella-rain/.github's workflow at commit b68a250, plus the run here on the commit's
-# own script (as Stella Rain's repo-check.yml does); a fix made in one copy is ported to the
-# other by hand.
 name: CLAUDE.md check
 
 on:

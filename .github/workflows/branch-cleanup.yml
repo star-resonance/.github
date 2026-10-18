@@ -9,8 +9,6 @@
 # made with GITHUB_TOKEN starts no `pull_request` run, so the daily sweep catches anything
 # missed. ADR numbers are Stella Rain's; star-resonance has no `gate/` branches yet.
 # `runs-on` lets a private caller pick its own runner; here and by default, ubuntu-latest.
-# A copy of stella-rain/.github's workflow at commit b68a250; a fix made in one copy is
-# ported to the other by hand.
 name: Branch cleanup
 
 on:
