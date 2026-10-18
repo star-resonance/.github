@@ -1,6 +1,6 @@
 # Reusable: adds an issue to the star-resonance organization Project ("Resonance") and applies
 # its command labels (cmd:status-now, cmd:verify-not-verified, ...). Called from each synced
-# repository's project-sync.yml. A copy of stella-rain/.github's workflow at commit 07d8f68.
+# repository's project-sync.yml.
 #
 # Needs, as organization (or caller repository) settings:
 #   vars.PROJECT_NUMBER           the Project's number

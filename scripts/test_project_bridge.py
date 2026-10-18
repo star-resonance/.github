@@ -121,11 +121,11 @@ class ProjectFields(unittest.TestCase):
             pb.parse_project({"organization": {"projectV2": None}})
 
 
-def node(kind, number, title, state, values, repo="app", archived=False, assignees=()):
+def node(kind, number, title, state, values, repo="resonance-stream", archived=False, assignees=()):
     content = {"__typename": kind, "title": title}
     if kind != "DraftIssue":
         content.update(
-            number=number, url=f"https://github.com/stella-rain/{repo}/issues/{number}",
+            number=number, url=f"https://github.com/star-resonance/{repo}/issues/{number}",
             state=state, repository={"name": repo},
             assignees={"nodes": [{"login": login} for login in assignees]},
         )
@@ -140,17 +140,17 @@ def node(kind, number, title, state, values, repo="app", archived=False, assigne
 
 
 def page(*nodes):
-    return {"organization": {"projectV2": {"title": "Stella Rain", "items": {
+    return {"organization": {"projectV2": {"title": "Resonance", "items": {
         "pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": list(nodes)}}}}
 
 
 class Snapshot(unittest.TestCase):
     def setUp(self):
         self.items = pb.parse_items([page(
-            node("Issue", 1, "Rust class runs in an APK", "OPEN",
+            node("Issue", 1, "Capture runs on Windows", "OPEN",
                  {"Status": "Now", "Phase": "P0 Android spike", "Priority": "P1", "Target": "2026-10-20"}),
             node("Issue", 2, "Fixed-point math | module", "OPEN",
-                 {"Status": "Next", "Phase": "P1 Vertical slice"}, repo="core"),
+                 {"Status": "Next", "Phase": "P1 Vertical slice"}, repo="resonance-lab"),
             node("Issue", 3, "Export works on device", "CLOSED",
                  {"Status": "Done", "Phase": "P0 Android spike", "Verification": "Needs Windows"},
                  assignees=["enjay27"]),
@@ -160,8 +160,8 @@ class Snapshot(unittest.TestCase):
             node("Issue", 5, "Old thing", "CLOSED", {"Status": "Done"}, archived=True),
             node("Issue", 6, "Choose the sound engine", "OPEN", {"Status": "Next"},
                  assignees=["enjay27"]),
-            node("Issue", 7, "Corpus on an Apple silicon Mac", "CLOSED",
-                 {"Status": "Done", "Verification": "Needs macOS"}, repo="core"),
+            node("Issue", 7, "Build on an Apple silicon Mac", "CLOSED",
+                 {"Status": "Done", "Verification": "Needs macOS"}, repo="resonance-lab"),
         )])
 
     def test_archived_items_are_skipped(self):
@@ -169,12 +169,12 @@ class Snapshot(unittest.TestCase):
 
     def test_open_means_open_or_draft_and_not_done(self):
         open_refs = sorted(i.ref() for i in self.items if i.is_open)
-        self.assertEqual(open_refs, ["app#1", "app#6", "core#2", "draft"])
+        self.assertEqual(open_refs, ["draft", "resonance-lab#2", "resonance-stream#1", "resonance-stream#6"])
 
     def test_assignees_are_read(self):
         by_ref = {i.ref(): i.assignees for i in self.items}
-        self.assertEqual(by_ref["app#6"], ["enjay27"])
-        self.assertEqual(by_ref["app#1"], [])
+        self.assertEqual(by_ref["resonance-stream#6"], ["enjay27"])
+        self.assertEqual(by_ref["resonance-stream#1"], [])
         self.assertEqual(by_ref["draft"], [])
 
     def test_items_query_asks_for_assignees(self):
@@ -182,18 +182,18 @@ class Snapshot(unittest.TestCase):
 
     def test_render(self):
         when = dt.datetime(2026, 10, 8, 0, 17, tzinfo=dt.timezone.utc)
-        text = pb.render_status(self.items, "Stella Rain", when, "https://github.com/orgs/stella-rain/projects/1")
+        text = pb.render_status(self.items, "Resonance", when, "https://github.com/orgs/star-resonance/projects/1")
         self.assertIn("Generated 2026-10-08 00:17 UTC (2026-10-08 09:17 KST)", text)
         self.assertIn("## Now (1)", text)
-        self.assertIn("- [app#1](https://github.com/stella-rain/app/issues/1) Rust class runs in an APK · P1 · P0 · target 2026-10-20", text)
+        self.assertIn("- [resonance-stream#1](https://github.com/star-resonance/resonance-stream/issues/1) Capture runs on Windows · P1 · P0 · target 2026-10-20", text)
         # a decision is an open item assigned to the maintainer; a closed one is not waiting
         self.assertIn("## Waiting on Kade (1)", text)
-        self.assertIn("app#6", text.split("## Waiting on Kade")[1].split("##")[0])
+        self.assertIn("resonance-stream#6", text.split("## Waiting on Kade")[1].split("##")[0])
         # closed but still waiting for a check on one machine or device
         self.assertIn("## Needs Windows (1)", text)
-        self.assertIn("app#3", text.split("## Needs Windows")[1].split("##")[0])
+        self.assertIn("resonance-stream#3", text.split("## Needs Windows")[1].split("##")[0])
         self.assertIn("## Needs macOS (1)", text)
-        self.assertIn("core#7", text.split("## Needs macOS")[1].split("##")[0])
+        self.assertIn("resonance-lab#7", text.split("## Needs macOS")[1].split("##")[0])
         self.assertIn("## Needs Android device (0)", text)
         self.assertIn("## Needs iPhone (0)", text)
         self.assertNotIn("Needs Kade", text)
@@ -208,7 +208,7 @@ class Snapshot(unittest.TestCase):
         self.assertIn("- draft Look at audio later", text)
 
     def test_empty_project_renders(self):
-        text = pb.render_status([], "Stella Rain", dt.datetime(2026, 10, 8, tzinfo=dt.timezone.utc))
+        text = pb.render_status([], "Resonance", dt.datetime(2026, 10, 8, tzinfo=dt.timezone.utc))
         self.assertIn("## Now (0)", text)
         self.assertIn("## Waiting on Kade (0)", text)
         self.assertIn("- none", text)
@@ -242,7 +242,7 @@ class SyncCommand(unittest.TestCase):
                 return None
 
         base = {
-            "REPO": "stella-rain/app", "ISSUE_NUMBER": "7", "ISSUE_NODE_ID": "I_7", "ORG": "stella-rain",
+            "REPO": "star-resonance/resonance-stream", "ISSUE_NUMBER": "7", "ISSUE_NODE_ID": "I_7", "ORG": "star-resonance",
             "PROJECT_NUMBER": "1", "PROJECT_TOKEN": "p", "GITHUB_TOKEN": "g", "SENDER": "enjay27",
         }
         base.update(env)
@@ -261,8 +261,8 @@ class SyncCommand(unittest.TestCase):
         self.assertEqual(sorted(sets), ["o_now", "o_p1"])
         deletes = [c[1] for c in calls if c[0] == "DELETE"]
         self.assertEqual(deletes, [
-            "/repos/stella-rain/app/issues/7/labels/cmd%3Astatus-now",
-            "/repos/stella-rain/app/issues/7/labels/cmd%3Apriority-p1",
+            "/repos/star-resonance/resonance-stream/issues/7/labels/cmd%3Astatus-now",
+            "/repos/star-resonance/resonance-stream/issues/7/labels/cmd%3Apriority-p1",
         ])
         # field updates happen before any label is removed
         first_delete = next(i for i, c in enumerate(calls) if c[0] == "DELETE")
@@ -277,7 +277,7 @@ class SyncCommand(unittest.TestCase):
         self.assertFalse([c for c in calls if c[0] == "graphql" and "option" in c[2]])
         self.assertTrue([c for c in calls if c[0] == "graphql" and c[2].get("content") == "I_7"])
         self.assertEqual([c[1] for c in calls if c[0] == "DELETE"],
-                         ["/repos/stella-rain/app/issues/7/labels/cmd%3Astatus-now"])
+                         ["/repos/star-resonance/resonance-stream/issues/7/labels/cmd%3Astatus-now"])
 
 
 if __name__ == "__main__":

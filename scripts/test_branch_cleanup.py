@@ -1,10 +1,4 @@
-"""Tests for branch_cleanup.py. Run: python3 -m unittest discover -s scripts
-
-A copy of stella-rain/.github scripts/test_branch_cleanup.py at commit b68a250; its ADR numbers are
-Stella Rain's. A fix made in one copy is ported to the other by hand.
-
-Follows enjay27/lakehouse's scripts/test_branch_cleanup.py; `gate/` branches from app's ADR-063.
-"""
+"""Tests for branch_cleanup.py. Run: python3 -m unittest discover -s scripts"""
 
 import contextlib
 import io
@@ -17,7 +11,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(__file__))
 import branch_cleanup as cleanup  # noqa: E402
 
-REPO = "stella-rain/core"
+REPO = "star-resonance/resonance-lab"
 
 
 def branch(name, sha="a1"):
@@ -50,7 +44,7 @@ class ClaudeBranches(unittest.TestCase):
         self.assertEqual(delete([branch("claude/x")], prs), [])
 
     def test_a_merged_pr_from_a_fork_with_the_same_name_does_not_count(self):
-        self.assertEqual(delete([branch("claude/x")], [pr("claude/x", repo="fork/core")]), [])
+        self.assertEqual(delete([branch("claude/x")], [pr("claude/x", repo="fork/resonance-lab")]), [])
 
     def test_kades_and_other_branches_are_never_deleted(self):
         for name in ("main", "rc", "status", "kade/x", "x", "claude"):
@@ -68,7 +62,7 @@ class ClaudeBranches(unittest.TestCase):
 
 
 class GateBranches(unittest.TestCase):
-    """ADR-063 §5: a run deletes its own gate branch; this sweep deletes what a run left."""
+    """A run deletes its own gate branch; this sweep deletes what a run left."""
 
     def test_gate_branches_of_a_task_without_a_branch_are_deleted(self):
         branches = [branch("gate/apple/x"), branch("gate/linux/x")]

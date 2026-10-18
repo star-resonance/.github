@@ -1,10 +1,6 @@
 #!/usr/bin/env python3
 """Bridge between issues and the organization Project.
 
-A copy of stella-rain/.github scripts/project_bridge.py at commit 07d8f68; only this docstring, the
---org default and an ADR mention in the STATUS.md text differ. A fix made in one copy is ported to
-the other by hand.
-
 Two commands:
 
   sync      Run by the project-sync workflow on an issue event. Adds the issue to the

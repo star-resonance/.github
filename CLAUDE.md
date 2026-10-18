@@ -2,8 +2,7 @@
 
 Public organization-wide files for star-resonance (`resonance-stream`, `resonance-lab`): the
 Project bridge, the shared CI workflows, and the default issue forms and pull request template.
-It holds no project data. Everything here is this organization's own copy of Stella Rain's
-(`stella-rain/.github`), so the two organizations do not depend on each other.
+It holds no project data.
 
 ## Layout
 
@@ -32,11 +31,7 @@ reusable from here.
   next run. Keep inputs, outputs and behaviour backward compatible, or change the callers in
   the same task.
 - Command labels are honoured only from people with write access; never relax that.
-- **Two copies.** The bridge (`project_bridge.py`, its tests, `project-sync.yml`) was copied
-  from `stella-rain/.github` at commit `07d8f68`, the rest at `b68a250`; each file's header
-  says which. A fix made in one copy is ported to the other by hand, and the header's commit
-  updated. Ours differs on purpose only in names, hints and `auto-merge.yml`'s `merged` output.
-- The reusable workflows keep Stella Rain's optional `runs-on` input; public callers never
+- The reusable workflows take an optional `runs-on` input; public callers never
   pass it, and a self-hosted runner never runs a public repository's jobs.
 - The PR template's sections (*What changed and why*, *Verified*, *NOT VERIFIED*,
   *Wrong turns*) are what `repo-workflow` relies on; change them together.

@@ -1,8 +1,4 @@
-"""Tests for claude_md_check.py. Run: python3 -m unittest discover -s scripts
-
-A copy of stella-rain/.github scripts/test_claude_md_check.py at commit b68a250; its ADR numbers are
-Stella Rain's. A fix made in one copy is ported to the other by hand.
-"""
+"""Tests for claude_md_check.py. Run: python3 -m unittest discover -s scripts"""
 
 import os
 import sys

@@ -17,8 +17,6 @@
 # The output `merged` is `true` once this run merged the PR: a caller that needs a run on main
 # after a merge (resonance-stream re-saves its build cache) starts it in a job of its own.
 # `runs-on` lets a private caller pick its own runner; here and by default, ubuntu-latest.
-# A copy of stella-rain/.github's workflow at commit b68a250, plus the `merged` output; a fix
-# made in one copy is ported to the other by hand.
 name: Auto-merge (reusable)
 
 on:

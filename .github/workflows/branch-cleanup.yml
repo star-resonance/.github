@@ -1,16 +1,14 @@
 # Reusable, and runs here: deletes the `claude/*` branches that outlived their work, a merged
-# PR's branch still at that PR's head commit (ADR-053), and the `gate/<type>/<task>` branches
-# of a task no branch or open PR has any more (app's ADR-063). scripts/branch_cleanup.py
+# PR's branch still at that PR's head commit, and the `gate/<type>/<task>` branches of a task
+# no branch or open PR has any more. scripts/branch_cleanup.py
 # decides; it is checked out from this repository's main, never from a PR. Whatever it
 # prints, this workflow deletes only `claude/` and `gate/` names.
 # Auto-merge deletes the branches it merges; this catches the PRs Kade merges by hand (every
 # PR here, and drafts and workflow PRs in resonance-stream and resonance-lab). Callers run it
 # when a PR closes, daily, and by hand, like this repository's own triggers below. A merge
 # made with GITHUB_TOKEN starts no `pull_request` run, so the daily sweep catches anything
-# missed. ADR numbers are Stella Rain's; star-resonance has no `gate/` branches yet.
+# missed. star-resonance has no `gate/` branches yet.
 # `runs-on` lets a private caller pick its own runner; here and by default, ubuntu-latest.
-# A copy of stella-rain/.github's workflow at commit b68a250; a fix made in one copy is
-# ported to the other by hand.
 name: Branch cleanup
 
 on:
