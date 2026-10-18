@@ -18,7 +18,6 @@ class ParseCommand(unittest.TestCase):
         self.assertEqual(pb.parse_command("cmd:verify-needs-macos"), ("Verification", "Needs macOS"))
         self.assertEqual(pb.parse_command("cmd:verify-needs-android"), ("Verification", "Needs Android device"))
         self.assertEqual(pb.parse_command("cmd:verify-needs-iphone"), ("Verification", "Needs iPhone"))
-        self.assertEqual(pb.parse_command("cmd:verify-needs-linux"), ("Verification", "Needs Linux test cluster"))
 
     def test_needs_kade_is_gone(self):
         # A decision is an assignee, not a Verification value; the old label is reported, not applied.
@@ -37,7 +36,7 @@ class ParseCommand(unittest.TestCase):
     def test_verification_environments_are_the_needs_options(self):
         self.assertEqual(
             pb.VERIFICATION_ENVIRONMENTS,
-            ["Needs Windows", "Needs macOS", "Needs Android device", "Needs iPhone", "Needs Linux test cluster"],
+            ["Needs Windows", "Needs macOS", "Needs Android device", "Needs iPhone"],
         )
         for option in pb.VERIFICATION_ENVIRONMENTS:
             self.assertIn(option, pb.VERIFICATION_OPTIONS)
@@ -213,34 +212,6 @@ class Snapshot(unittest.TestCase):
         self.assertIn("## Backlog (1)", text)
         self.assertIn("- draft Look at audio later", text)
 
-    def test_render_shows_only_the_environments_given(self):
-        # A Project renders a section for each Needs option it has, and for no other.
-        when = dt.datetime(2026, 10, 8, tzinfo=dt.timezone.utc)
-        resonance = ["Needs Windows", "Needs macOS", "Needs Android device", "Needs iPhone"]
-        text = pb.render_status(self.items, "Resonance", when, environments=resonance)
-        self.assertIn("## Needs iPhone (0)", text)
-        self.assertNotIn("Needs Linux", text)
-        text = pb.render_status([], "Lakehouse", when, environments=["Needs Linux test cluster"])
-        self.assertIn("## Needs Linux test cluster (0)", text)
-        self.assertNotIn("Needs Windows", text)
-
-    def test_render_without_environments_shows_them_all(self):
-        text = pb.render_status([], "Resonance", dt.datetime(2026, 10, 8, tzinfo=dt.timezone.utc))
-        for environment in pb.VERIFICATION_ENVIRONMENTS:
-            self.assertIn(f"## {environment} (0)", text)
-
-    def test_project_environments_follow_the_projects_options(self):
-        def project(options):
-            return pb.parse_project({"organization": {"projectV2": {"id": "PVT_1", "fields": {"nodes": [
-                {"id": "F_v", "name": "Verification", "options": [{"id": o, "name": o} for o in options]},
-            ]}}}})
-        # in the bridge's order, whatever the Project's order; Verified and NOT VERIFIED are not environments
-        self.assertEqual(
-            pb.project_environments(project(["Needs Linux test cluster", "Verified", "NOT VERIFIED", "Needs Windows"])),
-            ["Needs Windows", "Needs Linux test cluster"],
-        )
-        self.assertEqual(pb.project_environments(pb.parse_project(PROJECT_DATA)), [])
-
     def test_empty_project_renders(self):
         text = pb.render_status([], "Resonance", dt.datetime(2026, 10, 8, tzinfo=dt.timezone.utc))
         self.assertIn("## Now (0)", text)
@@ -312,149 +283,6 @@ class SyncCommand(unittest.TestCase):
         self.assertTrue([c for c in calls if c[0] == "graphql" and c[2].get("content") == "I_7"])
         self.assertEqual([c[1] for c in calls if c[0] == "DELETE"],
                          ["/repos/star-resonance/resonance-stream/issues/7/labels/cmd%3Astatus-now"])
-
-
-def labeled(label, actor):
-    return {"event": "labeled", "label": {"name": label}, "actor": {"login": actor}}
-
-
-class BackfillPlan(unittest.TestCase):
-    def test_labelers_keep_the_latest_actor_in_labelling_order(self):
-        events = [
-            labeled("cmd:status-next", "enjay27"),
-            labeled("cmd:priority-p2", "outsider"),
-            {"event": "unlabeled", "label": {"name": "cmd:status-next"}, "actor": {"login": "enjay27"}},
-            {"event": "closed", "actor": {"login": "enjay27"}},
-            labeled("cmd:status-now", "enjay27"),
-            labeled("cmd:priority-p2", "enjay27"),
-            {"event": "labeled", "label": {"name": "bug"}, "actor": None},
-        ]
-        actors = pb.labelers(events)
-        self.assertEqual(
-            list(actors.items()),
-            [("cmd:status-next", "enjay27"), ("cmd:status-now", "enjay27"),
-             ("cmd:priority-p2", "enjay27"), ("bug", "")],
-        )
-
-    def test_plan_backfill_honours_only_labels_a_writer_added(self):
-        plan = pb.plan_backfill(
-            ["bug", "cmd:priority-p1", "cmd:status-now", "cmd:verify-needs-linux", "cmd:status-someday"],
-            {"cmd:status-now": "enjay27", "cmd:priority-p1": "outsider", "cmd:status-someday": "enjay27"},
-            {"enjay27"}.__contains__,
-        )
-        self.assertEqual(plan.apply, ["cmd:status-now"])
-        # added by someone without write access, or by nobody the events record
-        self.assertEqual(sorted(plan.strip), ["cmd:priority-p1", "cmd:verify-needs-linux"])
-        self.assertEqual(plan.unknown, ["cmd:status-someday"])
-
-    def test_plan_backfill_orders_commands_by_when_they_were_added(self):
-        # the issue lists its labels alphabetically; the later label wins, as in sync
-        plan = pb.plan_backfill(
-            ["cmd:status-next", "cmd:status-now"],
-            {"cmd:status-now": "enjay27", "cmd:status-next": "enjay27"},
-            {"enjay27"}.__contains__,
-        )
-        self.assertEqual(plan.apply, ["cmd:status-now", "cmd:status-next"])
-        self.assertEqual(pb.last_wins(plan.apply), {"Status": "Next"})
-
-
-class BackfillCommand(unittest.TestCase):
-    """cmd_backfill end to end, with GitHub replaced by a recorder."""
-
-    ISSUES = [
-        {"number": 9, "node_id": "I_9", "title": "secret title",
-         "labels": [{"name": "bug"}, {"name": "cmd:status-now"}]},
-        {"number": 10, "node_id": "PR_10", "title": "a PR", "labels": [], "pull_request": {}},
-        {"number": 11, "node_id": "I_11", "title": "secret title", "labels": []},
-        {"number": 12, "node_id": "I_12", "title": "secret title",
-         "labels": [{"name": "cmd:verify-needs-linux"}, {"name": "cmd:status-someday"}]},
-    ]
-    EVENTS = {
-        9: [labeled("cmd:status-now", "enjay27")],
-        12: [labeled("cmd:verify-needs-linux", "outsider"), labeled("cmd:status-someday", "enjay27")],
-    }
-
-    def run_backfill(self, argv):
-        calls, printed = [], []
-        issues, events = self.ISSUES, self.EVENTS
-
-        class FakeGitHub:
-            def __init__(self, token):
-                self.token = token
-
-            def graphql(self, query, variables):
-                calls.append(("graphql", variables))
-                if "addProjectV2ItemById" in query:
-                    return {"addProjectV2ItemById": {"item": {"id": "ITEM_" + variables["content"]}}}
-                if "updateProjectV2ItemFieldValue" in query:
-                    return {"updateProjectV2ItemFieldValue": {"projectV2Item": {"id": variables["item"]}}}
-                return {"organization": {"projectV2": {"id": "PVT_9", "fields": {"nodes": [
-                    {"id": "F_s", "name": "Status", "options": [{"id": "o_now", "name": "Now"}]},
-                ]}}}}
-
-            def rest(self, method, path, body=None):
-                calls.append((method, path))
-                if path.endswith("/permission"):
-                    writer = path.endswith("/collaborators/enjay27/permission")
-                    return {"permission": "write" if writer else "read", "role_name": "write" if writer else "read"}
-                if "/issues?" in path:
-                    return issues if path.endswith("&page=1") else []
-                if "/events?" in path:
-                    number = int(path.split("/issues/")[1].split("/")[0])
-                    return events.get(number, []) if path.endswith("&page=1") else []
-                return None
-
-        env = {"GH_TOKEN": "t"}
-        with mock.patch.object(pb, "GitHub", FakeGitHub), mock.patch.dict(os.environ, env, clear=True), \
-                mock.patch("builtins.print", lambda *a, **k: printed.append(" ".join(map(str, a)))):
-            code = pb.main(argv)
-        return code, calls, "\n".join(printed)
-
-    def test_adds_open_issues_applies_writers_commands_and_removes_them(self):
-        code, calls, out = self.run_backfill(
-            ["backfill", "--org", "star-resonance", "--project", "9", "--repo", "enjay27/lakehouse"])
-        self.assertEqual(code, 0)
-        added = [c[1]["content"] for c in calls if c[0] == "graphql" and "content" in c[1]]
-        self.assertEqual(added, ["I_9", "I_11", "I_12"])  # the pull request is not an issue
-        sets = [(c[1]["item"], c[1]["option"]) for c in calls if c[0] == "graphql" and "option" in c[1]]
-        self.assertEqual(sets, [("ITEM_I_9", "o_now")])
-        deletes = [c[1] for c in calls if c[0] == "DELETE"]
-        self.assertEqual(deletes, [
-            "/repos/enjay27/lakehouse/issues/9/labels/cmd%3Astatus-now",
-            "/repos/enjay27/lakehouse/issues/12/labels/cmd%3Averify-needs-linux",
-        ])
-        # an issue with no command labels needs no events call
-        self.assertFalse([c for c in calls if c[0] == "GET" and "/issues/11/events" in c[1]])
-        self.assertIn("enjay27/lakehouse#9", out)
-        self.assertIn("cmd:status-someday", out)  # unknown, left in place, reported
-        self.assertNotIn("secret title", out)
-
-    def test_dry_run_writes_nothing(self):
-        code, calls, out = self.run_backfill(
-            ["backfill", "--org", "star-resonance", "--project", "9", "--repo", "enjay27/lakehouse", "--dry-run"])
-        self.assertEqual(code, 0)
-        self.assertFalse([c for c in calls if c[0] == "DELETE"])
-        self.assertFalse([c for c in calls if c[0] == "graphql" and ("content" in c[1] or "option" in c[1])])
-        self.assertIn("set Status = Now", out)
-        self.assertIn("dry run", out)
-
-    def test_an_option_the_project_lacks_stops_before_anything_is_written(self):
-        issues = self.ISSUES + [{"number": 13, "node_id": "I_13", "title": "secret title",
-                                 "labels": [{"name": "cmd:priority-p1"}]}]
-        events = {**self.EVENTS, 13: [labeled("cmd:priority-p1", "enjay27")]}
-        with mock.patch.object(BackfillCommand, "ISSUES", issues), mock.patch.object(BackfillCommand, "EVENTS", events):
-            code, calls, out = self.run_backfill(
-                ["backfill", "--org", "star-resonance", "--project", "9", "--repo", "enjay27/lakehouse"])
-        self.assertEqual(code, 1)
-        self.assertFalse([c for c in calls if c[0] == "DELETE"])
-        self.assertFalse([c for c in calls if c[0] == "graphql" and ("content" in c[1] or "option" in c[1])])
-        self.assertIn("enjay27/lakehouse#13", out)
-        self.assertIn("Priority", out)
-
-    def test_repo_is_required(self):
-        with mock.patch("sys.stderr"), self.assertRaises(SystemExit):
-            pb.main(["backfill", "--org", "star-resonance", "--project", "9"])
-
 
 
 if __name__ == "__main__":

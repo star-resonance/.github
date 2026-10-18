@@ -1,22 +1,19 @@
 #!/usr/bin/env python3
 """Bridge between issues and the organization Project.
 
-Three commands:
+Two commands:
 
   sync      Run by the project-sync workflow on an issue event. Adds the issue to the
             Project and applies command labels (cmd:<field>-<value>) to Project fields,
             then removes those labels. Labels are requests, never state.
   snapshot  Exports the Project to STATUS.md, which cloud sessions read because they
             cannot reach the Project API themselves.
-  backfill  Run once by hand when a repository joins a Project: adds its open issues and
-            applies the command labels they already carry, as sync would have.
 
 Both talk to GitHub with plain HTTPS (no third-party packages), so the same file runs in
 Actions and on a developer machine:
 
   GH_TOKEN=$(gh auth token) python3 project_bridge.py snapshot \
       --org star-resonance --project 1 --out STATUS.md
-  GH_TOKEN=$(gh auth token) python3 project_bridge.py backfill       --org <org> --project <n> --repo <org>/<repo> --dry-run
 
 Nothing here prints issue titles to the log: the sync job runs in public repositories,
 whose Actions logs are public.
@@ -48,10 +45,7 @@ FIELD_TARGET = "Target"
 STATUS_OPTIONS = ["Backlog", "Next", "Now", "In review", "Done"]
 # A check that cannot run in a cloud session or in CI waits for a machine or a device. A
 # decision is not a verification: it is an issue assigned to a maintainer (MAINTAINERS).
-# A Project has only the environments its repositories need; the snapshot shows those it has.
-VERIFICATION_ENVIRONMENTS = [
-    "Needs Windows", "Needs macOS", "Needs Android device", "Needs iPhone", "Needs Linux test cluster",
-]
+VERIFICATION_ENVIRONMENTS = ["Needs Windows", "Needs macOS", "Needs Android device", "Needs iPhone"]
 VERIFICATION_OPTIONS = ["Verified", "NOT VERIFIED"] + VERIFICATION_ENVIRONMENTS
 MAINTAINERS = {"enjay27"}
 PRIORITY_OPTIONS = ["P1", "P2", "P3"]
@@ -69,7 +63,6 @@ COMMANDS: dict[str, tuple[str, str]] = {
     "verify-needs-macos": (FIELD_VERIFICATION, "Needs macOS"),
     "verify-needs-android": (FIELD_VERIFICATION, "Needs Android device"),
     "verify-needs-iphone": (FIELD_VERIFICATION, "Needs iPhone"),
-    "verify-needs-linux": (FIELD_VERIFICATION, "Needs Linux test cluster"),
     "priority-p1": (FIELD_PRIORITY, "P1"),
     "priority-p2": (FIELD_PRIORITY, "P2"),
     "priority-p3": (FIELD_PRIORITY, "P3"),
@@ -118,42 +111,6 @@ def plan_labels(action: str, event_label: str, issue_labels: list[str], sender_c
     plan = Plan()
     for label in candidates:
         if not sender_can_write:
-            plan.strip.append(label)
-        elif parse_command(label):
-            plan.apply.append(label)
-        else:
-            plan.unknown.append(label)
-    return plan
-
-
-def labelers(events: list[dict]) -> dict[str, str]:
-    """Who last added each label, from an issue's events, ordered by when it was added."""
-    result: dict[str, str] = {}
-    for event in events:
-        if event.get("event") != "labeled" or not event.get("label"):
-            continue
-        label = event["label"].get("name", "")
-        result.pop(label, None)
-        result[label] = (event.get("actor") or {}).get("login", "")
-    return result
-
-
-def plan_backfill(labels: list[str], actors: dict[str, str], can_write) -> Plan:
-    """Decide which command labels already on an issue to apply, strip or report.
-
-    A label counts only if someone with write access added it (can_write(login)); one with
-    no labelling event on record is treated as an outsider's. Commands are in the order they
-    were added, so the later one wins per field, as in sync.
-    """
-    order = list(actors)
-    commands = sorted(
-        (label for label in labels if is_command(label)),
-        key=lambda label: order.index(label) if label in actors else -1,
-    )
-    plan = Plan()
-    for label in commands:
-        actor = actors.get(label, "")
-        if not actor or not can_write(actor):
             plan.strip.append(label)
         elif parse_command(label):
             plan.apply.append(label)
@@ -294,12 +251,6 @@ class Project:
         return f["id"], opt
 
 
-def project_environments(project: Project) -> list[str]:
-    """The Verification environments this Project has, in the bridge's order."""
-    options = project.fields.get(FIELD_VERIFICATION, {}).get("options", {})
-    return [environment for environment in VERIFICATION_ENVIRONMENTS if environment in options]
-
-
 def parse_project(data: dict) -> Project:
     node = (data.get("organization") or {}).get("projectV2")
     if not node:
@@ -323,27 +274,6 @@ def can_write(gh: GitHub, repo: str, user: str) -> bool:
         return False
     out = gh.rest("GET", f"/repos/{repo}/collaborators/{urllib.parse.quote(user)}/permission") or {}
     return out.get("role_name") in WRITE_ROLES or out.get("permission") in WRITE_ROLES
-
-
-def add_item(gh: GitHub, project: Project, content_id: str) -> str:
-    """Add an issue or pull request to the Project (a no-op if it is there); its item id."""
-    item = gh.graphql(ADD_ITEM, {"project": project.id, "content": content_id})
-    return item["addProjectV2ItemById"]["item"]["id"]
-
-
-def set_fields(gh: GitHub, project: Project, item_id: str, fields: dict[str, str]) -> list[str]:
-    """Set single-select fields on a Project item; one summary line per field."""
-    lines = []
-    for field_name, option_name in fields.items():
-        field_id, option_id = project.option(field_name, option_name)
-        gh.graphql(SET_OPTION, {"project": project.id, "item": item_id, "field": field_id, "option": option_id})
-        lines.append(f"- set {field_name} = {option_name}")
-    return lines
-
-
-def remove_labels(gh: GitHub, repo: str, number: int | str, labels: list[str]) -> None:
-    for label in labels:
-        gh.rest("DELETE", f"/repos/{repo}/issues/{number}/labels/{urllib.parse.quote(label, safe='')}")
 
 
 def summary(lines: list[str]) -> None:
@@ -372,89 +302,23 @@ def cmd_sync(args: argparse.Namespace) -> int:
     project = parse_project(
         project_gh.graphql(PROJECT_QUERY, {"org": env["ORG"], "number": int(env["PROJECT_NUMBER"])})
     )
-    item_id = add_item(project_gh, project, env["ISSUE_NODE_ID"])
+    item = project_gh.graphql(ADD_ITEM, {"project": project.id, "content": env["ISSUE_NODE_ID"]})
+    item_id = item["addProjectV2ItemById"]["item"]["id"]
 
     lines = [f"### Project sync: {repo}#{number} ({action})", "- in Project: yes"]
-    lines += set_fields(project_gh, project, item_id, last_wins(plan.apply))
+    for field_name, option_name in last_wins(plan.apply).items():
+        field_id, option_id = project.option(field_name, option_name)
+        project_gh.graphql(
+            SET_OPTION, {"project": project.id, "item": item_id, "field": field_id, "option": option_id}
+        )
+        lines.append(f"- set {field_name} = {option_name}")
 
-    remove_labels(repo_gh, repo, number, plan.apply + plan.strip)
+    for label in plan.apply + plan.strip:
+        repo_gh.rest("DELETE", f"/repos/{repo}/issues/{number}/labels/{urllib.parse.quote(label, safe='')}")
     if plan.strip:
         lines.append(f"- ignored and removed {len(plan.strip)} command label(s): sender has no write access")
     if plan.unknown:
         lines.append(f"- unknown command label(s), left in place: {', '.join(plan.unknown)}")
-    summary(lines)
-    return 0
-
-
-# --------------------------------------------------------------------------- backfill
-
-
-def paginate(gh: GitHub, path: str) -> list[dict]:
-    """Every entry of a REST list endpoint; path already has a query string."""
-    out, page = [], 1
-    while True:
-        batch = gh.rest("GET", f"{path}&per_page=100&page={page}") or []
-        out += batch
-        if len(batch) < 100:
-            return out
-        page += 1
-
-
-def cmd_backfill(args: argparse.Namespace) -> int:
-    token = os.environ.get("PROJECT_TOKEN") or os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN", "")
-    gh = GitHub(token)
-    repo = args.repo
-    project = parse_project(gh.graphql(PROJECT_QUERY, {"org": args.org, "number": args.project}))
-
-    writers: dict[str, bool] = {}
-
-    def writer(login: str) -> bool:
-        if login not in writers:
-            writers[login] = can_write(gh, repo, login)
-        return writers[login]
-
-    issues = [i for i in paginate(gh, f"/repos/{repo}/issues?state=open") if "pull_request" not in i]
-    # Plan every issue and check every option first: a run that stops halfway would leave
-    # some issues with their labels applied and removed, and the rest untouched.
-    plans, problems = [], []
-    for issue in issues:
-        number = issue["number"]
-        labels = [label["name"] for label in issue.get("labels", [])]
-        actors = {}
-        if any(is_command(label) for label in labels):
-            actors = labelers(paginate(gh, f"/repos/{repo}/issues/{number}/events?"))
-        plan = plan_backfill(labels, actors, writer)
-        for field_name, option_name in last_wins(plan.apply).items():
-            try:
-                project.option(field_name, option_name)
-            except GitHubError as err:
-                problems.append(f"- {repo}#{number}: {err}")
-        plans.append((issue, plan))
-
-    mode = " (dry run: nothing written)" if args.dry_run else ""
-    lines = [f"### Project backfill: {repo} into {args.org} Project {args.project}{mode}"]
-    if problems:
-        summary(lines + ["Nothing written: the Project lacks fields or options these issues ask for."] + problems)
-        return 1
-
-    fields_set = labels_removed = 0
-    for issue, plan in plans:
-        number = issue["number"]
-        fields = last_wins(plan.apply)
-        lines.append(f"- {repo}#{number}: in Project")
-        if args.dry_run:
-            lines += [f"  - set {name} = {option}" for name, option in fields.items()]
-        else:
-            item_id = add_item(gh, project, issue["node_id"])
-            lines += ["  " + line for line in set_fields(gh, project, item_id, fields)]
-            remove_labels(gh, repo, number, plan.apply + plan.strip)
-        fields_set += len(fields)
-        labels_removed += len(plan.apply + plan.strip)
-        if plan.strip:
-            lines.append(f"  - removed {len(plan.strip)} command label(s) no writer added")
-        if plan.unknown:
-            lines.append(f"  - unknown command label(s), left in place: {', '.join(plan.unknown)}")
-    lines.append(f"{len(issues)} open issue(s), {fields_set} field(s) set, {labels_removed} label(s) removed")
     summary(lines)
     return 0
 
@@ -575,13 +439,7 @@ def _section(title: str, items: list[Item], limit: int | None = None) -> list[st
     return out
 
 
-def render_status(
-    items: list[Item],
-    project_title: str,
-    generated: dt.datetime,
-    project_url: str = "",
-    environments: list[str] | None = None,
-) -> str:
+def render_status(items: list[Item], project_title: str, generated: dt.datetime, project_url: str = "") -> str:
     open_items = [i for i in items if i.is_open]
     stamp = generated.astimezone(dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     kst = generated.astimezone(dt.timezone(dt.timedelta(hours=9))).strftime("%Y-%m-%d %H:%M KST")
@@ -598,7 +456,7 @@ def render_status(
     lines += _section("Waiting on Kade", [i for i in items if i.waits_on_maintainer])
     # Verification is independent of Status: closing an issue moves it to Done, but it stays
     # here until Kade has run the check and sets Verification to Verified.
-    for environment in VERIFICATION_ENVIRONMENTS if environments is None else environments:
+    for environment in VERIFICATION_ENVIRONMENTS:
         lines += _section(environment, [i for i in items if i.values.get(FIELD_VERIFICATION) == environment])
     lines += _section(
         "NOT VERIFIED", [i for i in items if i.values.get(FIELD_VERIFICATION) == "NOT VERIFIED"], limit=30
@@ -613,13 +471,10 @@ def render_status(
 def cmd_snapshot(args: argparse.Namespace) -> int:
     token = os.environ.get("PROJECT_TOKEN") or os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN", "")
     gh = GitHub(token)
-    project = parse_project(gh.graphql(PROJECT_QUERY, {"org": args.org, "number": args.project}))
     pages = fetch_pages(gh, args.org, args.project)
     title = pages[0]["organization"]["projectV2"]["title"]
     url = f"https://github.com/orgs/{args.org}/projects/{args.project}"
-    text = render_status(
-        parse_items(pages), title, dt.datetime.now(dt.timezone.utc), url, project_environments(project)
-    )
+    text = render_status(parse_items(pages), title, dt.datetime.now(dt.timezone.utc), url)
     with open(args.out, "w", encoding="utf-8") as fh:
         fh.write(text)
     print(f"wrote {args.out}: {len(text.splitlines())} lines")
@@ -637,19 +492,12 @@ def main(argv: list[str] | None = None) -> int:
     snap.add_argument("--org", default=os.environ.get("ORG", "star-resonance"))
     snap.add_argument("--project", type=int, default=int(os.environ.get("PROJECT_NUMBER") or 0))
     snap.add_argument("--out", default="STATUS.md")
-    fill = sub.add_parser("backfill", help="add a repository's open issues and apply their command labels")
-    fill.add_argument("--org", default=os.environ.get("ORG", "star-resonance"))
-    fill.add_argument("--project", type=int, default=int(os.environ.get("PROJECT_NUMBER") or 0))
-    fill.add_argument("--repo", required=True, help="owner/name")
-    fill.add_argument("--dry-run", action="store_true", help="print what would change, write nothing")
     args = parser.parse_args(argv)
     try:
         if args.command == "sync":
             return cmd_sync(args)
         if not args.project:
             parser.error("--project (or PROJECT_NUMBER) is required")
-        if args.command == "backfill":
-            return cmd_backfill(args)
         return cmd_snapshot(args)
     except GitHubError as err:
         print(f"error: {err}", file=sys.stderr)
