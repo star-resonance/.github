@@ -1,19 +1,25 @@
 # star-resonance: organization `.github`
 
 Public organization-wide files for star-resonance (`resonance-stream`, `resonance-lab`): the
-Project bridge and the default pull request template. It holds no project data. The bridge is
-this organization's own copy of Stella Rain's, so the two organizations do not depend on each
-other.
+Project bridge, the shared CI workflows, and the default issue forms and pull request template.
+It holds no project data. Everything here is this organization's own copy of Stella Rain's
+(`stella-rain/.github`), so the two organizations do not depend on each other.
 
 ## Layout
 
 | Path | What |
 |---|---|
 | `scripts/project_bridge.py` | Bridge: `sync` (issue event to Project fields) and `snapshot` (Project to `STATUS.md`) |
-| `scripts/test_project_bridge.py` | Unit tests for the bridge |
+| `scripts/auto_merge_gate.py` | Auto-merge verdict (`merge`, `wait`, `stop`) from a commit's checks, required checks, draft state and changed files; the issues a merged PR closes |
+| `scripts/branch_cleanup.py` | Which `claude/*` and `gate/*` branches to delete: a merged PR's branch still at its head, and a gate branch whose task is gone |
+| `scripts/claude_md_check.py` | `CLAUDE.md` at most 100 lines; `.claude/rules/*.md` at most 80 lines with `paths:` |
+| `scripts/test_*.py` | Unit tests for the scripts |
 | `.github/workflows/project-sync.yml` | Reusable: called by `resonance-stream` and `resonance-lab` on issue events |
-| `.github/workflows/test.yml`, `eol-check.yml` | Unit tests; LF line endings (both run here on push and PR) |
-| `.github/PULL_REQUEST_TEMPLATE.md` | Default for repos without their own |
+| `.github/workflows/auto-merge.yml` | Reusable: merges a green `claude/*` PR into `main`; inputs `require` (checks) and `protected` (paths); output `merged`; drafts and PRs touching `.github/workflows/` are left to Kade |
+| `.github/workflows/branch-cleanup.yml` | Reusable, and runs here: deletes merged `claude/*` branches and leftover `gate/*` branches |
+| `.github/workflows/claude-md-check.yml`, `eol-check.yml` | Reusable, and run here: the `CLAUDE.md` limits; LF line endings |
+| `.github/workflows/test.yml` | Unit tests on push and PR |
+| `.github/ISSUE_TEMPLATE/`, `.github/PULL_REQUEST_TEMPLATE.md`, `.github/dependabot.yml` | Defaults for repos without their own; monthly Actions bumps here |
 
 `project-snapshot.yml` in each caller checks out this repository to run `snapshot`; it is not
 reusable from here.
@@ -26,9 +32,12 @@ reusable from here.
   next run. Keep inputs, outputs and behaviour backward compatible, or change the callers in
   the same task.
 - Command labels are honoured only from people with write access; never relax that.
-- **Two copies.** `project_bridge.py`, its tests and `project-sync.yml` were copied from
-  `stella-rain/.github` at commit `07d8f68`; the script's and the workflow's headers say so. A fix made in one copy is
-  ported to the other by hand, and the header's commit updated.
+- **Two copies.** The bridge (`project_bridge.py`, its tests, `project-sync.yml`) was copied
+  from `stella-rain/.github` at commit `07d8f68`, the rest at `b68a250`; each file's header
+  says which. A fix made in one copy is ported to the other by hand, and the header's commit
+  updated. Ours differs on purpose only in names, hints and `auto-merge.yml`'s `merged` output.
+- The reusable workflows keep Stella Rain's optional `runs-on` input; public callers never
+  pass it, and a self-hosted runner never runs a public repository's jobs.
 - The PR template's sections (*What changed and why*, *Verified*, *NOT VERIFIED*,
   *Wrong turns*) are what `repo-workflow` relies on; change them together.
 
@@ -39,7 +48,7 @@ reusable from here.
 | `scripts/` | `python3 -m unittest discover -s scripts -v` (CI: `test.yml`) |
 | Bridge against the real Project | Kade: a test issue with a `cmd:` label, then a **Project snapshot** run |
 | Workflows | YAML parses; NOT VERIFIED until they have run on GitHub |
-| `CLAUDE.md` | At most 100 lines (`stella-rain/.github` `scripts/claude_md_check.py`, run with this repository as the argument) |
+| `CLAUDE.md` | `python3 scripts/claude_md_check.py .`; CI `claude-md-check` |
 | Line endings | CI `eol-check` |
 
 ## State and version control

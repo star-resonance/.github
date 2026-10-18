@@ -1,0 +1,60 @@
+# Reusable: checks the calling repository's Claude configuration stays within its limits
+# (CLAUDE.md at most 100 lines; each .claude/rules/*.md at most 80 lines with `paths:`).
+# Called from each repository's claude-md-check.yml, and runs on this repository too: here it
+# runs the script of the commit under test, so a PR that changes the script checks itself (and
+# the PR that added it found no script on main).
+# `runs-on` lets a private caller pick its own runner; here and by default, ubuntu-latest.
+# A copy of stella-rain/.github's workflow at commit b68a250, plus the run here on the commit's
+# own script (as Stella Rain's repo-check.yml does); a fix made in one copy is ported to the
+# other by hand.
+name: CLAUDE.md check
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: The runner as JSON, a label or a list of labels (default "ubuntu-latest")
+        type: string
+        required: false
+        default: '"ubuntu-latest"'
+  push:
+    branches: [main]
+    paths: ["CLAUDE.md", ".claude/**", "scripts/claude_md_check.py", ".github/workflows/claude-md-check.yml"]
+  pull_request:
+    paths: ["CLAUDE.md", ".claude/**", "scripts/claude_md_check.py", ".github/workflows/claude-md-check.yml"]
+
+permissions: {}
+
+jobs:
+  check:
+    name: CLAUDE.md and rules within limits
+    runs-on: ${{ fromJSON(inputs.runs-on || '"ubuntu-latest"') }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the calling repository
+        uses: actions/checkout@v7
+        with:
+          path: repo
+          persist-credentials: false
+
+      - name: Check out the check script
+        if: github.repository != 'star-resonance/.github'
+        uses: actions/checkout@v7
+        with:
+          repository: star-resonance/.github
+          ref: main
+          path: .check
+          persist-credentials: false
+
+      - name: Check
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          if [ "$REPOSITORY" = "star-resonance/.github" ]; then
+            script=repo/scripts/claude_md_check.py
+          else
+            script=.check/scripts/claude_md_check.py
+          fi
+          python3 "$script" repo

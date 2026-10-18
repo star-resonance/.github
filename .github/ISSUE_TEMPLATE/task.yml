@@ -1,0 +1,23 @@
+name: Task
+description: A unit of work, small enough for one pull request
+type: Task
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: What is true when this is done?
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: Done when
+      description: The check that proves it, e.g. a test, a gate, a manual step.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Related decisions (D-n), issues, or links.

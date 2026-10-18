@@ -1,0 +1,12 @@
+# Monthly bumps of the GitHub Actions this repository's workflows use, in one grouped PR.
+# The reusable workflows run in resonance-stream and resonance-lab, so a bump here reaches them
+# on their next run; Kade merges it (nothing here auto-merges).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
