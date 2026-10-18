@@ -11,7 +11,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(__file__))
 import branch_cleanup as cleanup  # noqa: E402
 
-REPO = "stella-rain/core"
+REPO = "star-resonance/resonance-lab"
 
 
 def branch(name, sha="a1"):
@@ -44,7 +44,7 @@ class ClaudeBranches(unittest.TestCase):
         self.assertEqual(delete([branch("claude/x")], prs), [])
 
     def test_a_merged_pr_from_a_fork_with_the_same_name_does_not_count(self):
-        self.assertEqual(delete([branch("claude/x")], [pr("claude/x", repo="fork/core")]), [])
+        self.assertEqual(delete([branch("claude/x")], [pr("claude/x", repo="fork/resonance-lab")]), [])
 
     def test_kades_and_other_branches_are_never_deleted(self):
         for name in ("main", "rc", "status", "kade/x", "x", "claude"):

@@ -83,23 +83,23 @@ def ref(owner, name, number):
 
 class IssuesToClose(unittest.TestCase):
     def test_same_repository_issues_are_closed_in_order(self):
-        refs = [ref("stella-rain", "app", 9), ref("stella-rain", "app", 4)]
-        self.assertEqual(gate.issues_to_close(refs, "stella-rain/app"), [4, 9])
+        refs = [ref("star-resonance", "resonance-stream", 9), ref("star-resonance", "resonance-stream", 4)]
+        self.assertEqual(gate.issues_to_close(refs, "star-resonance/resonance-stream"), [4, 9])
 
     def test_issues_in_other_repositories_are_left_alone(self):
-        refs = [ref("stella-rain", "core", 5), ref("stella-rain", "app", 4)]
-        self.assertEqual(gate.issues_to_close(refs, "stella-rain/app"), [4])
+        refs = [ref("star-resonance", "resonance-lab", 5), ref("star-resonance", "resonance-stream", 4)]
+        self.assertEqual(gate.issues_to_close(refs, "star-resonance/resonance-stream"), [4])
 
     def test_repository_names_compare_without_case(self):
-        refs = [ref("Stella-Rain", "App", 4)]
-        self.assertEqual(gate.issues_to_close(refs, "stella-rain/app"), [4])
+        refs = [ref("Star-Resonance", "Resonance-Stream", 4)]
+        self.assertEqual(gate.issues_to_close(refs, "star-resonance/resonance-stream"), [4])
 
     def test_duplicates_are_closed_once(self):
-        refs = [ref("stella-rain", "app", 4), ref("stella-rain", "app", 4)]
-        self.assertEqual(gate.issues_to_close(refs, "stella-rain/app"), [4])
+        refs = [ref("star-resonance", "resonance-stream", 4), ref("star-resonance", "resonance-stream", 4)]
+        self.assertEqual(gate.issues_to_close(refs, "star-resonance/resonance-stream"), [4])
 
     def test_no_references_closes_nothing(self):
-        self.assertEqual(gate.issues_to_close([], "stella-rain/app"), [])
+        self.assertEqual(gate.issues_to_close([], "star-resonance/resonance-stream"), [])
 
 
 class RequiredChecks(unittest.TestCase):
